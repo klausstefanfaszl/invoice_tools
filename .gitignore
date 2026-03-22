@@ -1,6 +1,7 @@
 build/
 dist/
 _internal/
+_testdaten/
 invoice_tools.exe
 __pycache__/
 *.pyc

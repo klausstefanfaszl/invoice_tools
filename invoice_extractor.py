@@ -497,6 +497,20 @@ class InvoiceExtractor:
             text_full = text or self._ocr_doc(doc)
             return self._extract_from_text(text_full)
 
+        # Gutschrift-Override: KI übersieht Gutschrift wenn IBAN vorhanden
+        # Nutzt Keyword-Liste aus der Config (<Keyword category="Gutschrift">)
+        if text and result.get('PaymentType') != 'Gutschrift':
+            payment_field = self.config.find('Field[@name="PaymentType"]')
+            if payment_field is not None:
+                gutschrift_kws = [
+                    kw_el.text for kw_el in payment_field.findall('Keyword')
+                    if kw_el.get('category') == 'Gutschrift' and kw_el.text
+                ]
+                if any(re.search(re.escape(kw), text, re.IGNORECASE) for kw in gutschrift_kws):
+                    self._dbg(1, f"PaymentType-Override: Gutschrift-Keyword im Text → 'Gutschrift' "
+                                 f"(KI hatte: {result.get('PaymentType')!r})")
+                    result['PaymentType'] = 'Gutschrift'
+
         return result
 
     # ── Prompt-Aufbau ─────────────────────────────────────────────────────────
@@ -542,8 +556,10 @@ class InvoiceExtractor:
             '- IBANs: Leerzeichen entfernen, maskierte IBANs (mit * oder XXX) weglassen\n'
             '- Beträge: als String mit Original-Formatierung (z.B. "1.234,56")\n'
             '- Daten: im Original-Format belassen\n'
-            '- PaymentType: "Gutschrift" (Kreditnote/Credit Note), "Lastschrift", '
-            '"Überweisung", "PayPal", "Online", "Vorauszahlung" oder null\n'
+            '- PaymentType: "Gutschrift" wenn das Dokument eine Gutschrift ist '
+            '(Titel oder Text enthält "Gutschrift", "Provisionsgutschrift", '
+            '"Kreditnote", "Credit Note", "Rechnungskorrektur" — auch wenn eine IBAN vorhanden ist). '
+            '"Lastschrift", "Überweisung", "PayPal", "Online", "Vorauszahlung" oder null\n'
             '- SupplierName: der RECHNUNGSAUSSTELLER (die Firma, die Geld verlangt / '
             'die Rechnung ausstellt), NICHT der Empfänger. '
             'Der Empfänger steht oft ganz oben als Adressfeld; ignoriere ihn für dieses Feld. '
