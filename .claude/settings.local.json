@@ -12,7 +12,8 @@
       "Bash(DST=\"F:/Dokumente/UHDE intern/Buchhaltung/invoice_tools\")",
       "Bash(cp -r \"$SRC/.\" \"$DST/\")",
       "Read(//f/Dokumente/UHDE intern/Buchhaltung/invoice_tools/src/$DST/**)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(cmd /c github.bat)"
     ]
   }
 }

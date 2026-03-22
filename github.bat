@@ -10,6 +10,11 @@ if /i "%1"=="restore" goto restore
 :store
 echo Speichere in GitHub ...
 git add -A
+git diff --cached --quiet
+if not errorlevel 1 (
+    echo Keine Änderungen vorhanden - nichts zu speichern.
+    goto end
+)
 git commit -m "Aktualisierung %date% %time%"
 git push -u origin main
 if errorlevel 1 (
