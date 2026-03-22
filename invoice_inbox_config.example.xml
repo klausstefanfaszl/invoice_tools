@@ -153,4 +153,30 @@
     <Config>invoice_extractor_config_RE.xml</Config>
   </InvoiceExtractor>
 
+  <!-- ══════════════════════════════════════════════════════════════
+       BANKINGGZV-EXPORT (optional)
+       Wird aktiviert wenn -b dry|json|export übergeben wird
+       UND WalletPath hier ausgefüllt ist.
+
+       Zahlungsart-Logik (aus extrahiertem Feld "PaymentType"):
+         Enthält "Überweisung" → SEPA-Überweisung (wir zahlen aktiv)
+         Enthält "Lastschrift"  → Erwartete Zahlung (wir werden belastet)
+         Enthält "Gutschrift"   → Erwartete Gutschrift
+         Leer + IBAN vorhanden  → SEPA-Überweisung (Fallback)
+         Leer + keine IBAN      → Erwartete Zahlung (Fallback)
+       ══════════════════════════════════════════════════════════════ -->
+  <BankingZV>
+    <!-- Pfad zu TopBanking.exe -->
+    <ExecutablePath>C:\Program Files (x86)\TopBankingZV\TopBanking.exe</ExecutablePath>
+    <!-- Pfad zur BankingZV Wallet-Datei (.sub) -->
+    <WalletPath>PFAD_ZUR_WALLET_DATEI.sub</WalletPath>
+    <!-- Authentifizierungstoken (aus BankingZV → Einstellungen → API-Token) -->
+    <Token>TOKEN_HIER</Token>
+    <!-- Standard-Zahlungsziel in Tagen (wenn Fälligkeitsdatum nicht extrahiert wurde) -->
+    <PaymentTermDays>14</PaymentTermDays>
+    <!-- Verwendungszweck-Template
+         Platzhalter: {InvoiceNumber}, {InvoiceDate}, {SupplierName} -->
+    <RmtInfTemplate>Rechnung {InvoiceNumber} vom {InvoiceDate}</RmtInfTemplate>
+  </BankingZV>
+
 </InboxProcessorConfig>
