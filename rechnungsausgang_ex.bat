@@ -113,6 +113,7 @@ if %COUNT%==0 (
 :: ============================================================
 ::  Verarbeitung starten
 :: ============================================================
+set STARTZEIT=%time%
 echo.
 echo  Rechnungsausgang %MONTH%/%YEAR%
 echo  -----------------------------------------------
@@ -121,6 +122,7 @@ echo  Dateien : %COUNT% PDF(s)
 echo  Format  : %FORMAT%
 echo  Ausgabe : %OUTPUT_FILE%
 echo  Laufzeit: !RUNNER!
+echo  Start   : %STARTZEIT%
 echo  -----------------------------------------------
 echo.
 
@@ -134,6 +136,8 @@ if %EXITCODE%==0 (
 ) else (
     echo  Fehler bei der Verarbeitung ^(Exit-Code: %EXITCODE%^).
 )
+echo  Start : %STARTZEIT%
+echo  Ende  : %time%
 echo.
 
 exit /b %EXITCODE%

@@ -48,12 +48,14 @@ echo.
 exit /b 1
 
 :start
+set STARTZEIT=%time%
 echo.
 echo  Eingangsrechnungen verarbeiten
 echo  -----------------------------------------------
 echo  Modus   : %MODUS%
 echo  Config  : %CONFIG%
 echo  Laufzeit: !RUNNER!
+echo  Start   : %STARTZEIT%
 echo  -----------------------------------------------
 echo.
 
@@ -66,6 +68,8 @@ if %EXITCODE%==0 (
 ) else (
     echo  Fehler bei der Verarbeitung ^(Exit-Code: %EXITCODE%^).
 )
+echo  Start : %STARTZEIT%
+echo  Ende  : %time%
 echo.
 
 exit /b %EXITCODE%
