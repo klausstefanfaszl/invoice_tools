@@ -1,0 +1,11 @@
+build/
+dist/
+_internal/
+invoice_tools.exe
+__pycache__/
+*.pyc
+re.log
+*.log
+invoice_tools_api_config.xml
+invoice_inbox_config.xml
+apitest.py

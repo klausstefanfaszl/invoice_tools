@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import fitz; print\\(fitz.__version__\\)\")",
+      "Bash(python -c \"import fitz; print\\(fitz.__version__\\)\")",
+      "Bash(py:*)",
+      "Read(//c/Users/faszl/AppData/Local/Programs/**)",
+      "Read(//c//**)",
+      "Read(//c/Users/faszl/AppData/Local/Programs/Python/**)",
+      "Bash(cp:*)",
+      "Bash(SRC=\"F:/Dokumente/UHDE intern/Buchhaltung/invoice_tools/src/dist/invoice_tools\")",
+      "Bash(DST=\"F:/Dokumente/UHDE intern/Buchhaltung/invoice_tools\")",
+      "Bash(cp -r \"$SRC/.\" \"$DST/\")",
+      "Read(//f/Dokumente/UHDE intern/Buchhaltung/invoice_tools/src/$DST/**)",
+      "Bash(python3:*)"
+    ]
+  }
+}

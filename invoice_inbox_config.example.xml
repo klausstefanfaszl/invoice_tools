@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Konfiguration für inbox_processor.py
+  Verarbeitet PDF-Rechnungsanhänge aus Exchange- oder IMAP-Postfächern.
+
+  Postfach-Typ: Attribut type="exchange" oder type="imap" am <Mailbox>-Tag.
+
+  ─── Dateinamens-Platzhalter (in <Filename/Pattern>) ───────────────────────
+    {invoice_month}   → MM  aus Rechnungsdatum
+    {invoice_day}     → TT  aus Rechnungsdatum
+    {supplier}        → bereinigter Lieferantenname (keine Leerzeichen/Sonderzeichen)
+    {invoice_number}  → bereinigte Rechnungsnummer
+
+  ─── Verzeichnis-Platzhalter (in <Storage/Subpath>) ────────────────────────
+    {year}            → YYYY aus Rechnungsdatum
+    {month}           → MM   aus Rechnungsdatum
+-->
+<InboxProcessorConfig>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       POSTFACH-KONFIGURATION
+       Typ "exchange": Microsoft Exchange / Office 365 via EWS
+       Typ "imap":     IMAP-Postfächer (Gmail, GMX, T-Online, ...)
+       ══════════════════════════════════════════════════════════════ -->
+
+  <!-- ── Exchange (EWS) ─────────────────────────────────────────── -->
+  <Mailbox type="exchange">
+    <Email>EMAIL_HIER</Email>
+    <Password>PASSWORT_HIER</Password>
+    <!-- Server: leer lassen → Autodiscover; bei On-Premise angeben -->
+    <Server>mail.firma.de</Server>
+    <!-- Ordnername im Postfach (Standard: Inbox / Posteingang) -->
+    <Folder>Inbox</Folder>
+    <!-- Erfolgreich verarbeitete Mails als gelesen markieren
+         (gilt nicht für Modus "dry", dort wird nie markiert) -->
+    <MarkAsRead>true</MarkAsRead>
+    <!-- Maximale Anzahl Mails pro Lauf -->
+    <Limit>100</Limit>
+  </Mailbox>
+
+  <!--
+  ── IMAP-Beispiele (auskommentieren um zu aktivieren) ────────────────────
+
+  Gmail (App-Passwort erforderlich wenn 2-Faktor-Authentifizierung aktiv,
+         einzurichten unter: Google-Konto → Sicherheit → App-Passwörter):
+  <Mailbox type="imap">
+    <Email>meinname@gmail.com</Email>
+    <Password>xxxx xxxx xxxx xxxx</Password>
+    <Server>imap.gmail.com</Server>
+    <Port>993</Port>
+    <SSL>true</SSL>
+    <Folder>INBOX</Folder>
+    <OnlyUnread>true</OnlyUnread>
+    <MarkAsRead>true</MarkAsRead>
+    <Limit>100</Limit>
+  </Mailbox>
+
+  GMX:
+  <Mailbox type="imap">
+    <Email>meinname@gmx.de</Email>
+    <Password>PASSWORT_HIER</Password>
+    <Server>imap.gmx.net</Server>
+    <Port>993</Port>
+    <SSL>true</SSL>
+    <Folder>INBOX</Folder>
+    <OnlyUnread>true</OnlyUnread>
+    <MarkAsRead>true</MarkAsRead>
+    <Limit>100</Limit>
+  </Mailbox>
+
+  T-Online:
+  <Mailbox type="imap">
+    <Email>meinname@t-online.de</Email>
+    <Password>PASSWORT_HIER</Password>
+    <Server>secureimap.t-online.de</Server>
+    <Port>993</Port>
+    <SSL>true</SSL>
+    <Folder>INBOX</Folder>
+    <OnlyUnread>true</OnlyUnread>
+    <MarkAsRead>true</MarkAsRead>
+    <Limit>100</Limit>
+  </Mailbox>
+
+  Office 365 / Outlook.com via IMAP:
+  <Mailbox type="imap">
+    <Email>meinname@outlook.com</Email>
+    <Password>PASSWORT_HIER</Password>
+    <Server>outlook.office365.com</Server>
+    <Port>993</Port>
+    <SSL>true</SSL>
+    <Folder>INBOX</Folder>
+    <OnlyUnread>true</OnlyUnread>
+    <MarkAsRead>true</MarkAsRead>
+    <Limit>100</Limit>
+  </Mailbox>
+  -->
+
+  <!-- ══════════════════════════════════════════════════════════════
+       ABLAGESTRUKTUR
+       ══════════════════════════════════════════════════════════════ -->
+  <Storage>
+    <!-- Wurzelverzeichnis für alle Eingangsrechnungen -->
+    <BaseDir>Eingangsrechnungen</BaseDir>
+    <!-- Unterverzeichnisstruktur unterhalb von BaseDir.
+         Leer lassen für flache Ablage direkt in BaseDir. -->
+    <Subpath>{year}/{month}</Subpath>
+    <!-- Verzeichnis für Rechnungen ohne erkennbares Datum -->
+    <FallbackDir>_unbekannt</FallbackDir>
+  </Storage>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       DATEINAMENSKONVENTION
+       ══════════════════════════════════════════════════════════════ -->
+  <Filename>
+    <!-- Platzhalter: {invoice_month} {invoice_day} {supplier} {invoice_number}
+         Extension .pdf wird automatisch angehängt. -->
+    <Pattern>ER_{invoice_month}{invoice_day}_{supplier}_{invoice_number}</Pattern>
+    <!-- Maximale Zeichenlänge der einzelnen Namensbestandteile -->
+    <SupplierMaxLen>20</SupplierMaxLen>
+    <InvoiceNumberMaxLen>20</InvoiceNumberMaxLen>
+  </Filename>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       ANHANG-FILTER
+       Anhänge deren Dateiname einem der Muster entspricht werden
+       ohne Extraktion übersprungen (Groß-/Kleinschreibung egal).
+       ══════════════════════════════════════════════════════════════ -->
+  <AttachmentFilter>
+    <SkipPattern>lastschrift</SkipPattern>
+    <SkipPattern>summary</SkipPattern>
+    <SkipPattern>zusammenfassung</SkipPattern>
+    <SkipPattern>pre-notifi</SkipPattern>
+  </AttachmentFilter>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       RECHNUNGSFILTER
+       PDF-Anhänge die nicht alle Pflichtfelder enthalten werden
+       ignoriert (keine Speicherung, Hinweis in der Ausgabe).
+       Verfügbare Feldnamen: InvoiceNumber, InvoiceDate, GrossAmount,
+         NetAmount, VAT, SupplierName, RecipientName, CustomerNumber,
+         IBAN, PaymentType, DueDate
+       ══════════════════════════════════════════════════════════════ -->
+  <InvoiceFilter>
+    <RequiredField>InvoiceNumber</RequiredField>
+    <RequiredField>GrossAmount</RequiredField>
+  </InvoiceFilter>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       INVOICE EXTRACTOR
+       ══════════════════════════════════════════════════════════════ -->
+  <InvoiceExtractor>
+    <!-- Pfad zur InvoiceExtractor-Konfiguration (relativ zu dieser Datei) -->
+    <Config>invoice_extractor_config_RE.xml</Config>
+  </InvoiceExtractor>
+
+</InboxProcessorConfig>

@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Konfiguration für InvoiceExtractor
+  Abgeleitet aus echten Eingangsrechnungen (UHDE Buchhaltung 2026).
+
+  Extraktions-Reihenfolge:
+    1. ZUGferD XML (immer zuerst, wenn vorhanden)
+    2. KI-Analyse (wenn <AI> konfiguriert) — ersetzt Regex für Text-PDFs
+    3. Regex-Fallback (wenn kein <AI>-Block vorhanden)
+
+  Feld-Attribute:
+    multi="true"           → findet alle Treffer als Liste (z.B. mehrere IBANs)
+    type="payment_detection" → wertet <Keyword category="..."> aus (nur Regex-Modus)
+  ZUGferD-Namespaces: rsm, ram, udt
+-->
+<InvoiceExtractionConfig>
+
+  <!--
+    ═══════════════════════════════════════════════════════
+    KI-KONFIGURATION
+    ═══════════════════════════════════════════════════════
+    Unterstützte Provider: claude | openai | gemini
+
+    Claude-Modelle:   claude-opus-4-6 (Standard), claude-sonnet-4-6, claude-haiku-4-5
+    OpenAI-Modelle:   gpt-4o (Standard), gpt-4o-mini
+    Gemini-Modelle:   gemini-2.0-flash (Standard), gemini-1.5-pro
+
+    Wird dieser Block auskommentiert oder fehlt der APIKey,
+    fällt das Skript automatisch auf Regex-Extraktion zurück.
+    ═══════════════════════════════════════════════════════
+  -->
+  <!-- KI-Konfiguration wird aus invoice_tools_api_config.xml geladen.
+       Fallback: <AI>-Block hier eintragen (überschreibt die zentrale Config).
+  -->
+
+  <!-- ======================= LIEFERANTENNAME ======================= -->
+  <!--
+    Hinweis: Ohne KI ist SupplierName schwer zuverlässig zu extrahieren.
+    ZUGferD liefert immer den korrekten Wert.
+    Bei Text-PDFs werden spezifische Label-Muster bevorzugt.
+  -->
+  <Field name="SupplierName" label="Lieferant">
+    <!-- ZUGferD: Verkäufername -->
+    <XPath>.//ram:SellerTradeParty/ram:Name</XPath>
+    <!-- Labelled "Aussteller" block (z.B. wolkesicher) -->
+    <Regex>Aussteller\s*\n+([^\n]+)</Regex>
+    <!-- "Von:" oder "Absender:" Label -->
+    <Regex>(?:^|\n)(?:Von|Absender|Rechnungssteller)[:\s]+([^\n]{5,60})</Regex>
+    <!-- Englisch: "From" -->
+    <Regex>(?:^|\n)From[:\s]+([^\n]{5,60})</Regex>
+  </Field>
+
+  <!-- ====================== RECHNUNGSEMPFÄNGER ==================== -->
+  <!--
+    Hinweis: Der Empfänger steht oft ganz oben im Adressfeld der Rechnung.
+    ZUGferD liefert den Wert zuverlässig. Bei Text-PDFs erste Adresszeile.
+  -->
+  <Field name="RecipientName" label="Empfänger">
+    <!-- ZUGferD: Käufername -->
+    <XPath>.//ram:BuyerTradeParty/ram:Name</XPath>
+    <!-- "Empfänger:" / "Rechnungsempfänger:" / "An:" Label -->
+    <Regex>(?:Rechnungsempfänger|Empfänger|An)[:\s]+\n?\s*([^\n]{5,60})</Regex>
+    <!-- Englisch: "Bill to:" / "Sold to:" -->
+    <Regex>(?:Bill\s+to|Sold\s+to|Ship\s+to)[:\s]+\n?\s*([^\n]{5,60})</Regex>
+  </Field>
+
+  <!-- ======================= RECHNUNGSNUMMER ====================== -->
+  <Field name="InvoiceNumber" label="Rechnungsnr.">
+    <!-- ZUGferD -->
+    <XPath>.//rsm:ExchangedDocument/ram:ID</XPath>
+    <!-- NFON-Format: Rechnungsnummer: \n<Hotline>\n<echte Nummer> – MUSS vor generischem Muster stehen! -->
+    <Regex>Rechnungsnummer:\s*\n[^\n]+\n\s*(\d{2}-\d{2}-\d+)</Regex>
+    <!-- Telekom: "Rechnungsnummer\n721 948 4891" – Ziffern mit Leerzeichen, mind. 8 Zeichen -->
+    <Regex>Rechnungsnummer[:\s]*\n\s*(\d[\d ]{7,18}\d)</Regex>
+    <!-- Standard ohne Leerzeichen (mind. 5 Zeichen, z.B. DR9116501, SJMAOFZB-0012) -->
+    <Regex>Rechnungsnummer[:\s#—\-]*\n?\s*([A-Z0-9][\w\d\-/\.]{4,40})</Regex>
+    <!-- Rechnungsnummer: direkt dahinter (Hetzner: "Rechnungsnummer: 089000740318") -->
+    <Regex>Rechnungsnummer:\s*([A-Z0-9][\w\d\-/\.]{4,40})</Regex>
+    <!-- "Rechnung Nr." Varianten (Wortmann: "Rechnung Nr. DR9116501") -->
+    <Regex>Rechnung\s+Nr\.?\s+([A-Z0-9][\w\d\-/\.]{2,40})</Regex>
+    <!-- Greiner: "Nr. GM-8422" (Großbuchstabe + Bindestrich) -->
+    <Regex>\bNr\.\s+([A-Z]{1,4}[\-\d][\w\d\-/\.]{2,20})</Regex>
+    <!-- FP-Sign: "Rechnung #— CBR-..." -->
+    <Regex>Rechnung\s*[#—]+\s*([A-Z0-9][\w\d\-/\.]{2,40})</Regex>
+    <!-- Englisch: "Invoice Number:" oder "Invoice number" -->
+    <Regex>Invoice\s+(?:Number|number|#)[:\s]*([A-Z0-9][\w\d\-/\.]{2,40})</Regex>
+    <!-- VW Leasing: BELEGNUMMER -->
+    <Regex>BELEGNUMMER\s*\n\s*(\d{5,20})</Regex>
+    <!-- GS1: Belegnummer -->
+    <Regex>Belegnummer\s*\n\s*(\d{5,20})</Regex>
+    <!-- Wolkesicher: "Rechnung 409398" (Zahl allein auf der Zeile) -->
+    <Regex>^Rechnung\s+(\d{4,10})\s*$</Regex>
+    <!-- Apptec: "RECHNUNG RE-2026-1-27064" -->
+    <Regex>RECHNUNG\s+([A-Z]{1,4}[\-\w\d]{2,30})</Regex>
+  </Field>
+
+  <!-- ======================== KUNDENNUMMER ======================== -->
+  <Field name="CustomerNumber" label="Kundennr.">
+    <!-- ZUGferD: Käufer-ID -->
+    <XPath>.//ram:BuyerTradeParty/ram:ID</XPath>
+    <!-- Deutsch: "Kundennummer" ein- oder zweizeilig -->
+    <Regex>Kunden-?(?:Nummer|Nr\.?)[:\s—\-]*\n?\s*([A-Z0-9][\w\d\-/ ]{1,30})</Regex>
+    <!-- Kunden-ID (FB-Sign) -->
+    <Regex>Kunden-ID[—\-:\s]*([A-Za-z0-9_]{3,30})</Regex>
+    <!-- Wortmann: "Rech. an Deb.-Nr." -->
+    <Regex>Rech\.\s+an\s+Deb\.-Nr\.?\s*\n?\s*(\d{4,10})</Regex>
+    <!-- Stadtwerke Speyer: "Kundennummer: 841655" -->
+    <Regex>Kundennummer:\s*(\d{4,12})</Regex>
+  </Field>
+
+  <!-- ======================= RECHNUNGSDATUM ======================= -->
+  <Field name="InvoiceDate" type="date" label="Rechnungsdatum">
+    <!-- ZUGferD (Format YYYYMMDD) -->
+    <XPath>.//rsm:ExchangedDocument/ram:IssueDateTime/udt:DateTimeString</XPath>
+    <!-- Standard: "Rechnungsdatum:" + DD.MM.YYYY -->
+    <Regex>Rechnungsdatum[:\s—\-]*\n?\s*(\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <!-- "Rechnungsdatum— Jan 01, 2026" (FP-Sign Englisch-Format) -->
+    <Regex>Rechnungsdatum[:\s—\-]*\n?\s*(\w{3,}\s+\d{1,2},?\s+\d{4})</Regex>
+    <!-- "Ausstellungsdatum" -->
+    <Regex>Ausstellungsdatum\s*\n?\s*(\d{1,2}\.?\s+\w+\s+\d{4}|\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <!-- "Belegdatum" (Wortmann) -->
+    <Regex>Belegdatum\s*\n?\s*(\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <!-- "Datum" + Zeilenumbruch + DD.MM.YYYY -->
+    <Regex>(?:^|\n)Datum[:\s]*\n?\s*(\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <!-- Englisch: "Invoice Date:" / "Date of issue" -->
+    <Regex>(?:Invoice\s+Date|Date\s+of\s+issue)[:\s]*\n?\s*(\d{1,2}\s+\w+\s+\d{4}|\w+\s+\d{1,2},?\s+\d{4})</Regex>
+    <!-- Ortsangabe + Datum: "Wiesenfelden, 06.01.2026" / "Speyer, 09.02.2026" -->
+    <Regex>[A-ZÄÖÜ][a-zäöüß]{2,20},\s+(\d{1,2}\.\d{1,2}\.\d{4})</Regex>
+  </Field>
+
+  <!-- ====================== FÄLLIGKEITSDATUM ====================== -->
+  <Field name="DueDate" type="date" label="Fällig am">
+    <!-- ZUGferD -->
+    <XPath>.//ram:SpecifiedTradePaymentTerms/ram:DueDateDateTime/udt:DateTimeString</XPath>
+    <!-- "Fälligkeitsdatum: DD.MM.YYYY" -->
+    <Regex>Fälligkeitsdatum[:\s—\-]*\n?\s*(\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <!-- "Fälligkeitsdatum— Jan 15, 2026" (FP-Sign) -->
+    <Regex>Fälligkeitsdatum[:\s—\-]*\n?\s*(\w{3,}\s+\d{1,2},?\s+\d{4})</Regex>
+    <!-- "Fällig am DD.MM.YYYY" oder "Fällig am 1. Januar 2026" -->
+    <Regex>Fällig\s+am\s*\n?\s*(\d{1,2}\.?\s+\w+\s+\d{4}|\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <!-- "bis zum XX.XX.XXXX ... fällig" (Greiner) -->
+    <Regex>bis\s+zum\s+(\d{1,2}\.\d{1,2}\.\d{4})\s+(?:ohne\s+Abzug\s+)?fällig</Regex>
+    <!-- Lastschrift-Einzug: "am 12.01.2026 eingezogen" (Ratiokontakt) -->
+    <Regex>am\s+(\d{1,2}\.\d{1,2}\.\d{4})\s+eingezogen</Regex>
+    <!-- "buchen wir am XX.XX.XXXX ab" (Telekom) -->
+    <Regex>buchen\s+wir\s+am\s+(\d{1,2}\.\d{1,2}\.\d{4})\s+ab</Regex>
+    <!-- "ziehen wir ... ab XX.XX.XXXX" (NFON) -->
+    <Regex>ziehen\s+wir\s+[^.]+?ab\s+(\d{1,2}\.\d{2}\.\d{4})</Regex>
+    <!-- Englisch: "Due Date" / "Date due" -->
+    <Regex>(?:Due\s+Date|Date\s+due)[:\s]*\n?\s*(\d{1,2}\s+\w+\s+\d{4}|\w+\s+\d{1,2},?\s+\d{4})</Regex>
+    <!-- Vendosoft: "( bis 30.01.2026 )" -->
+    <Regex>\(\s*bis\s+(\d{1,2}\.\d{1,2}\.\d{4})\s*\)</Regex>
+  </Field>
+
+  <!-- ========================= NETTOBETRAG ======================== -->
+  <Field name="NetAmount" type="amount" label="Nettobetrag">
+    <!-- ZUGferD: Steuerbasisgesamtbetrag = Netto -->
+    <XPath>.//ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxBasisTotalAmount</XPath>
+    <!-- "Nettobetrag (19 % MwSt.)" mit Betrag auf nächster Zeile (NFON) -->
+    <Regex>Nettobetrag[^\n]{0,30}\n\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "Gesamtnetto" (Ratiokontakt) -->
+    <Regex>Gesamtnetto\s*\n?\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "Gesamtsumme zzgl. USt." (FB-Sign) -->
+    <Regex>Gesamtsumme\s+zzgl\.?\s*USt\.?\s*\n?\s*€?\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "Zwischensumme netto" (Apptec) -->
+    <Regex>Zwischensumme\s+netto\s*\n?\s*([\d.,]+)</Regex>
+    <!-- "Gesamt EUR ohne MwSt." (Wortmann) -->
+    <Regex>Gesamt\s+EUR\s+ohne\s+MwSt\.?\s*\n?\s*([\d.,]+)</Regex>
+    <!-- "Zwischensumme €" gefolgt von MwSt-Zeile (Vendosoft) -->
+    <Regex>Zwischensumme\s*€?\s*\n\s*([\d.,]+)\s*\n\s*zzgl\.</Regex>
+    <!-- Finbc: "Netto\n8,39 €" -->
+    <Regex>^Netto\s*\n\s*([\d.,]+)\s*€</Regex>
+    <!-- Hetzner Summenzeile: Netto | Steuer | Brutto (1. Wert = Netto) -->
+    <Regex>^Summe\s+([\d.,]+)\s*€\s+[\d.,]+\s*€\s+[\d.,]+\s*€</Regex>
+    <!-- "Gesamt EUR ohne MwSt" Kurzform -->
+    <Regex>Gesamt\s+EUR\s+ohne[^\n]*\n?\s*([\d.,]+)</Regex>
+  </Field>
+
+  <!-- ========================= BRUTTOBETRAG ======================= -->
+  <Field name="GrossAmount" type="amount" label="Bruttobetrag">
+    <!-- ZUGferD: Gesamtbetrag -->
+    <XPath>.//ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:GrandTotalAmount</XPath>
+    <!-- "Rechnungsbetrag" (Ratiokontakt, FB-Sign, Telekom) -->
+    <Regex>Rechnungsbetrag[—\-:\s]*\n?\s*€?\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "Gesamtbetrag" auf eigener Zeile (NFON) -->
+    <Regex>^Gesamtbetrag\s*\n\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "Gesamtsumme\nXX,XX EUR" (Greiner) -->
+    <Regex>^Gesamtsumme\s*\n\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "Endsumme" (Vendosoft, GS1) -->
+    <Regex>Endsumme\s*€?\s*\n?\s*([\d.,]+)</Regex>
+    <!-- "Gesamt EUR inkl. MwSt." (Wortmann) -->
+    <Regex>Gesamt\s+EUR\s+inkl\.?\s+MwSt\.?\s*\n?\s*([\d.,]+)</Regex>
+    <!-- "Gesamt brutto" (Apptec 0% MwSt) -->
+    <Regex>Gesamt\s+brutto\s*\n?\s*([\d.,]+)</Regex>
+    <!-- Englisch: "Total €" / "Total $" -->
+    <Regex>^Total\s*[€$£]?\s*\n?\s*([\d.,]+)</Regex>
+    <!-- "Fälliger Betrag" (FB-Sign, finbc) -->
+    <Regex>Fälliger?\s+Betrag[^€\n]{0,20}€?\s*([\d]+[.,]\d{2})</Regex>
+    <!-- Hetzner Summenzeile: Netto | Steuer | Brutto (letzter Wert = Brutto) -->
+    <Regex>^Summe\s+[\d.,]+\s*€\s+[\d.,]+\s*€\s+([\d.,]+)\s*€</Regex>
+    <!-- "Gesamtbetrag - Einzug" (VW Leasing) -->
+    <Regex>Gesamtbetrag\s*-\s*Einzug[^\n]*\n?\s*€?\s*([\d]+[.,]\d{2})</Regex>
+  </Field>
+
+  <!-- ====================== MEHRWERTSTEUER ======================= -->
+  <Field name="VAT" type="amount" label="MwSt.">
+    <!-- ZUGferD -->
+    <XPath>.//ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxTotalAmount</XPath>
+    <!-- "MwSt.-Betrag (19%)" (Wortmann) -->
+    <Regex>MwSt\.?-?Betrag[^\n]{0,30}\n?\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "MwSt BEI 19 %" (FB-Sign) -->
+    <Regex>MwSt\s+BEI\s+\d+\s*%\s*\n?\s*€?\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "+19 % USt. auf X €\nBetrag" (Telekom) -->
+    <Regex>\+\s*\d+\s*%\s*USt\.?\s+auf\s+[\d,\.]+\s*€\s*\n?\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "zzgl. 19% MwSt\nXX,XX" (Ratiokontakt, Greiner) – Wert auf NÄCHSTER Zeile -->
+    <Regex>zzgl\.?\s*\d+[,.]?\d*\s*%\s*MwSt\.?\s*\n\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "zzgl. gesetzl. MwSt\n19 %\nXX,XX" (NFON) -->
+    <Regex>zzgl\.?\s*gesetzl\.?\s*MwSt\.?[^\n]*\n[^\n]*\n\s*([\d]+[.,]\d{2})</Regex>
+    <!-- "zzgl. MwSt 19,00 % aus € X.XXX,XX\nXXX,XX" (Vendosoft) -->
+    <Regex>zzgl\.?\s*MwSt\s+[\d,\.]+\s*%\s+aus[^\n]*\n\s*([\d.,]+)</Regex>
+    <!-- "USt. - Deutschland (19 % inkl. ...)\nX,XX €" (finbc) -->
+    <Regex>USt\.?[^\n]{0,50}inkl[^\n]*\n\s*([\d]+[.,]\d{2})</Regex>
+    <!-- Hetzner Summenzeile: Netto | Steuer | Brutto (mittlerer Wert = Steuer) -->
+    <Regex>^Summe\s+[\d.,]+\s*€\s+([\d.,]+)\s*€\s+[\d.,]+\s*€</Regex>
+    <!-- "Umsatzsteuer (X %)\nXX,XX" (Apptec, auch 0%) -->
+    <Regex>Umsatzsteuer\s*\([^)]+\)\s*\n?\s*([\d.,]+)</Regex>
+  </Field>
+
+  <!-- ============= IBAN (mehrere möglich, multi=true) ============= -->
+  <Field name="IBAN" multi="true" label="IBAN">
+    <!-- ZUGferD: alle IBAN-Elemente (Gläubiger + Schuldner) -->
+    <XPath>.//ram:IBANID</XPath>
+    <!--
+      Deutsche IBAN: DE + 2 Prüfziffern + 4×4 Ziffern + 2 Ziffern = 22 Zeichen.
+      Leerzeichen und Zeilenumbrüche zwischen Gruppen werden toleriert.
+      Maskierte IBANs (mit * oder XXX) werden im Skript herausgefiltert.
+    -->
+    <Regex>IBAN:?\s+(DE\d{2}(?:[\s\n]?\d{4}){4}[\s\n]?\d{2})</Regex>
+    <!-- Ausländische IBAN (CH, AT, IE, NL, BE etc.) mit IBAN-Label -->
+    <Regex>IBAN:?\s+([A-Z]{2}\d{2}[A-Z0-9 ]{10,30})(?=\s*(?:BIC|SWIFT|\||\n|\.))</Regex>
+  </Field>
+
+  <!-- ==================== ZAHLUNGSART =========================== -->
+  <!--
+    type="payment_detection":
+    Im ZUGferD wird TypeCode ausgewertet (30/58=Überweisung, 49/59=Lastschrift).
+    Im Text werden <Keyword>-Einträge geprüft (erste Übereinstimmung gewinnt).
+  -->
+  <Field name="PaymentType" type="payment_detection" label="Zahlungsart">
+    <!-- Lastschrift-Keywords (Priorität 1) -->
+    <Keyword category="Lastschrift">SEPA-Lastschrift</Keyword>
+    <Keyword category="Lastschrift">Banklastschrift</Keyword>
+    <Keyword category="Lastschrift">Lastschriftverfahren</Keyword>
+    <Keyword category="Lastschrift">Lastschrift ist aktiv</Keyword>
+    <Keyword category="Lastschrift">Einzug durch Banklastschrift</Keyword>
+    <Keyword category="Lastschrift">per Lastschrift</Keyword>
+    <Keyword category="Lastschrift">buchen wir ab</Keyword>
+    <Keyword category="Lastschrift">buchen wir am</Keyword>
+    <Keyword category="Lastschrift">ziehen wir mittels</Keyword>
+    <Keyword category="Lastschrift">wird abgebucht</Keyword>
+    <Keyword category="Lastschrift">wird von nachfolgendem Konto abgebucht</Keyword>
+    <!-- Überweisung-Keywords (Priorität 2) -->
+    <Keyword category="Überweisung">ÜBERWEISUNG DETAILS</Keyword>
+    <Keyword category="Überweisung">bitte überweisen</Keyword>
+    <Keyword category="Überweisung">Bitte überweisen</Keyword>
+    <Keyword category="Überweisung">per Überweisung</Keyword>
+    <Keyword category="Überweisung">Zahlung erfolgt über Rechnung</Keyword>
+    <Keyword category="Überweisung">Zahlbar innerhalb</Keyword>
+    <Keyword category="Überweisung">SEPA Credit Transfer</Keyword>
+    <!-- "Zahlbar: X Tage" impliziert Überweisung (Wortmann, FourJs) -->
+    <Keyword category="Überweisung">Zahlbar:</Keyword>
+    <Keyword category="Überweisung">Please Remit Payment</Keyword>
+    <!-- Sonstige Zahlungsarten -->
+    <Keyword category="PayPal">PayPal</Keyword>
+    <Keyword category="Online">Online bezahlen</Keyword>
+    <Keyword category="Online">Pay online</Keyword>
+    <Keyword category="Vorauszahlung">bereits im Bestellprozess erfolgt</Keyword>
+    <Keyword category="Vorauszahlung">Zahlung ist bereits erfolgt</Keyword>
+  </Field>
+
+</InvoiceExtractionConfig>

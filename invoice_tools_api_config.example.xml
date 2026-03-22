@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Zentrale KI-API-Konfiguration für invoice_tools.
+  Kopiere diese Datei als invoice_tools_api_config.xml und trage deine API-Keys ein.
+  Wird von invoice_extractor.py und inbox_processor.py verwendet.
+
+  Nur der erste aktive (nicht auskommentierte) <AI>-Block wird verwendet.
+  Alternativer Provider kann über Option -a angegeben werden.
+
+  Provider:  openai | claude | gemini
+-->
+<APIConfig>
+
+  <!-- ── Aktiver Provider ──────────────────────────────────────────────── -->
+  <AI>
+    <Provider>gemini</Provider>
+    <Model>gemini-2.5-flash-lite</Model>
+    <APIKey>AIza...</APIKey>
+  </AI>
+
+  <!-- ── Alternative Provider (auskommentiert) ─────────────────────────── -->
+  <!--
+  <AI>
+    <Provider>openai</Provider>
+    <Model>gpt-4o-mini</Model>
+    <APIKey>sk-proj-...</APIKey>
+  </AI>
+
+  <AI>
+    <Provider>claude</Provider>
+    <Model>claude-opus-4-6</Model>
+    <APIKey>sk-ant-...</APIKey>
+  </AI>
+  -->
+
+</APIConfig>

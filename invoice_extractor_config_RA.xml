@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Konfiguration für InvoiceExtractor — AUSGANGSRECHNUNGEN (RA)
+  Enthält RecipientName (Empfänger), kein SupplierName.
+
+  Extraktions-Reihenfolge:
+    1. ZUGferD XML (immer zuerst, wenn vorhanden)
+    2. KI-Analyse (wenn <AI> konfiguriert) — ersetzt Regex für Text-PDFs
+    3. Regex-Fallback (wenn kein <AI>-Block vorhanden)
+
+  Feld-Attribute:
+    multi="true"           → findet alle Treffer als Liste (z.B. mehrere IBANs)
+    type="payment_detection" → wertet <Keyword category="..."> aus (nur Regex-Modus)
+  ZUGferD-Namespaces: rsm, ram, udt
+-->
+<InvoiceExtractionConfig subtotals="true">
+
+  <!--
+    ═══════════════════════════════════════════════════════
+    KI-KONFIGURATION
+    ═══════════════════════════════════════════════════════
+    Unterstützte Provider: claude | openai | gemini
+
+    Claude-Modelle:   claude-opus-4-6 (Standard), claude-sonnet-4-6, claude-haiku-4-5
+    OpenAI-Modelle:   gpt-4o (Standard), gpt-4o-mini
+    Gemini-Modelle:   gemini-2.0-flash (Standard), gemini-1.5-pro
+
+    Wird dieser Block auskommentiert oder fehlt der APIKey,
+    fällt das Skript automatisch auf Regex-Extraktion zurück.
+    ═══════════════════════════════════════════════════════
+  -->
+  <!-- KI-Konfiguration wird aus invoice_tools_api_config.xml geladen.
+       Fallback: <AI>-Block hier eintragen (überschreibt die zentrale Config).
+  -->
+
+  <!-- ====================== RECHNUNGSEMPFÄNGER ==================== -->
+  <!--
+    Layout UHDE-Ausgangsrechnung:
+      UHDE DATENTECHNIK · ...
+      [Leerzeile]
+      [Leerzeile]
+      Rechnung
+      [Leerzeile]
+      <RecipientName>       ← erste nicht-leere Zeile nach "Rechnung"
+      <Adresszeile(n)>
+      [Leerzeile]
+      [Leerzeile]
+      Nummer : 30202
+      ...
+  -->
+  <Field name="RecipientName" label="Empfänger">
+    <!-- ZUGferD: Käufername -->
+    <XPath>.//ram:BuyerTradeParty/ram:Name</XPath>
+    <!-- UHDE-Format: erste nicht-leere Zeile direkt nach "Rechnung" (Leerzeilen mit Leerzeichen übersprungen) -->
+    <Regex>^Rechnung\s*\n(?:[ \t]*\n)*([^\n]{3,80})</Regex>
+    <!-- Fallback: "An:" / "Empfänger:" Label -->
+    <Regex>(?:Rechnungsempfänger|Empfänger|An)[:\s]+\n?\s*([^\n]{5,60})</Regex>
+  </Field>
+
+  <!-- ======================= RECHNUNGSNUMMER ====================== -->
+  <!--
+    UHDE-Format: "Nummer : 30202" — auf einer Zeile, Leerzeichen um Doppelpunkt
+  -->
+  <Field name="InvoiceNumber" label="Rechnungsnr.">
+    <!-- ZUGferD -->
+    <XPath>.//rsm:ExchangedDocument/ram:ID</XPath>
+    <!-- UHDE-Format: "Nummer : 30202" -->
+    <Regex>^Nummer\s*:\s*(\d{4,10})</Regex>
+    <!-- Fallback: allgemeine Rechnungsnummer-Labels -->
+    <Regex>Rechnungsnummer[:\s#—\-]*\n?\s*([A-Z0-9][\w\d\-/\.]{2,40})</Regex>
+    <Regex>Rechnung\s+Nr\.?\s+([A-Z0-9][\w\d\-/\.]{2,40})</Regex>
+  </Field>
+
+  <!-- ======================== KUNDENNUMMER ======================== -->
+  <!--
+    UHDE-Format: "Kunde" auf einer Zeile, ": D03767" auf der nächsten Zeile
+  -->
+  <Field name="CustomerNumber" label="Kundennr.">
+    <!-- ZUGferD: Käufer-ID -->
+    <XPath>.//ram:BuyerTradeParty/ram:ID</XPath>
+    <!-- UHDE-Format: "Kunde\n: D03767" -->
+    <Regex>^Kunde\s*\n:\s*([A-Z0-9][\w\d\-]{1,20})</Regex>
+    <!-- Fallback: allgemeine Kundennummer-Labels -->
+    <Regex>Kunden-?(?:Nummer|Nr\.?)[:\s—\-]*\n?\s*([A-Z0-9][\w\d\-/ ]{1,30})</Regex>
+    <Regex>Kundennummer:\s*(\d{4,12})</Regex>
+  </Field>
+
+  <!-- ======================= RECHNUNGSDATUM ======================= -->
+  <!--
+    UHDE-Format: "Datum" auf einer Zeile, ": 09.01.2026" auf der nächsten Zeile
+  -->
+  <Field name="InvoiceDate" type="date" label="Rechnungsdatum">
+    <!-- ZUGferD (Format YYYYMMDD) -->
+    <XPath>.//rsm:ExchangedDocument/ram:IssueDateTime/udt:DateTimeString</XPath>
+    <!-- UHDE-Format: "Datum\n: DD.MM.YYYY" -->
+    <Regex>^Datum\s*\n:\s*(\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <!-- Fallback: allgemeine Datumsformate -->
+    <Regex>Rechnungsdatum[:\s—\-]*\n?\s*(\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <Regex>[A-ZÄÖÜ][a-zäöüß]{2,20},\s+(\d{1,2}\.\d{1,2}\.\d{4})</Regex>
+  </Field>
+
+  <!-- ====================== FÄLLIGKEITSDATUM ====================== -->
+  <!--
+    UHDE-Ausgangsrechnungen enthalten kein explizites Fälligkeitsdatum.
+    Zahlungsziel: "8 Tagen nach Rechnungsdatum ohne Abzug" — kein Datum extrahierbar.
+  -->
+  <Field name="DueDate" type="date" label="Fällig am">
+    <!-- ZUGferD -->
+    <XPath>.//ram:SpecifiedTradePaymentTerms/ram:DueDateDateTime/udt:DateTimeString</XPath>
+    <!-- Fallback (nur für abweichende Layouts) -->
+    <Regex>Fälligkeitsdatum[:\s—\-]*\n?\s*(\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <Regex>Fällig\s+am\s*\n?\s*(\d{1,2}\.\d{1,2}\.\d{2,4})</Regex>
+    <Regex>bis\s+zum\s+(\d{1,2}\.\d{1,2}\.\d{4})\s+(?:ohne\s+Abzug\s+)?fällig</Regex>
+  </Field>
+
+  <!-- ========================= NETTOBETRAG ======================== -->
+  <!--
+    UHDE-Summenblock (alle Labels stehen VOR den Werten, spaltenweise):
+      Netto
+      USt.1
+      USt. 19,00%
+      Endbetrag
+      <NettoWert>      ← z.B. 1.620,00
+      <UStWert>        ← z.B. 307,80
+      EUR
+      <EndbetragWert>  ← z.B. 1.927,80
+  -->
+  <Field name="NetAmount" type="amount" label="Nettobetrag">
+    <!-- ZUGferD: Steuerbasisgesamtbetrag = Netto -->
+    <XPath>.//ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxBasisTotalAmount</XPath>
+    <!-- UHDE-Format: erster Wert im Summenblock nach den 4 Labels -->
+    <Regex>Endbetrag\s*\n([\d.,]+)\s*\n[\d.,]+\s*\nEUR</Regex>
+    <!-- Fallback -->
+    <Regex>^Netto\s*\n\s*([\d.,]+)</Regex>
+  </Field>
+
+  <!-- ========================= BRUTTOBETRAG ======================= -->
+  <Field name="GrossAmount" type="amount" label="Bruttobetrag">
+    <!-- ZUGferD: Gesamtbetrag -->
+    <XPath>.//ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:GrandTotalAmount</XPath>
+    <!-- UHDE-Format: Wert direkt nach "EUR" im Summenblock -->
+    <Regex>Endbetrag\s*\n[\d.,]+\s*\n[\d.,]+\s*\nEUR\s*\n([\d.,]+)</Regex>
+    <!-- Fallback: "Endbetrag" als Label direkt vor Wert -->
+    <Regex>Endbetrag\s*:\s*([\d.,]+)</Regex>
+  </Field>
+
+  <!-- ====================== MEHRWERTSTEUER ======================= -->
+  <Field name="VAT" type="amount" label="MwSt.">
+    <!-- ZUGferD -->
+    <XPath>.//ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxTotalAmount</XPath>
+    <!-- UHDE-Format: zweiter Wert im Summenblock (zwischen NettoWert und EUR) -->
+    <Regex>Endbetrag\s*\n[\d.,]+\s*\n([\d.,]+)\s*\nEUR</Regex>
+    <!-- Fallback -->
+    <Regex>USt\.\s*[\d,\.]+\s*%\s*\n?\s*([\d.,]+)</Regex>
+  </Field>
+
+  <!-- ============= IBAN (mehrere möglich, multi=true) ============= -->
+  <Field name="IBAN" multi="true" label="IBAN">
+    <!-- ZUGferD: alle IBAN-Elemente -->
+    <XPath>.//ram:IBANID</XPath>
+    <!-- Deutsche IBAN -->
+    <Regex>IBAN:?\s+(DE\d{2}(?:[\s\n]?\d{4}){4}[\s\n]?\d{2})</Regex>
+    <!-- Ausländische IBAN mit IBAN-Label -->
+    <Regex>IBAN:?\s+([A-Z]{2}\d{2}[A-Z0-9 ]{10,30})(?=\s*(?:BIC|SWIFT|\||\n|\.))</Regex>
+  </Field>
+
+  <!-- ==================== ZAHLUNGSART =========================== -->
+  <!--
+    type="payment_detection":
+    Im ZUGferD wird TypeCode ausgewertet (30/58=Überweisung, 49/59=Lastschrift).
+    Im Text werden <Keyword>-Einträge geprüft (erste Übereinstimmung gewinnt).
+  -->
+  <Field name="PaymentType" type="payment_detection" label="Zahlungsart">
+    <!-- Lastschrift-Keywords (Priorität 1) -->
+    <Keyword category="Lastschrift">SEPA-Lastschrift</Keyword>
+    <Keyword category="Lastschrift">Banklastschrift</Keyword>
+    <Keyword category="Lastschrift">Lastschriftverfahren</Keyword>
+    <Keyword category="Lastschrift">per Lastschrift</Keyword>
+    <Keyword category="Lastschrift">buchen wir ab</Keyword>
+    <Keyword category="Lastschrift">buchen wir am</Keyword>
+    <Keyword category="Lastschrift">ziehen wir mittels</Keyword>
+    <Keyword category="Lastschrift">wird abgebucht</Keyword>
+    <!-- Überweisung-Keywords (Priorität 2) -->
+    <Keyword category="Überweisung">bitte überweisen</Keyword>
+    <Keyword category="Überweisung">Bitte überweisen</Keyword>
+    <Keyword category="Überweisung">per Überweisung</Keyword>
+    <Keyword category="Überweisung">Zahlbar innerhalb</Keyword>
+    <Keyword category="Überweisung">SEPA Credit Transfer</Keyword>
+    <Keyword category="Überweisung">Zahlbar:</Keyword>
+    <Keyword category="Überweisung">Please Remit Payment</Keyword>
+    <!-- Sonstige Zahlungsarten -->
+    <Keyword category="PayPal">PayPal</Keyword>
+    <Keyword category="Online">Online bezahlen</Keyword>
+    <Keyword category="Online">Pay online</Keyword>
+    <Keyword category="Vorauszahlung">bereits im Bestellprozess erfolgt</Keyword>
+    <Keyword category="Vorauszahlung">Zahlung ist bereits erfolgt</Keyword>
+  </Field>
+
+</InvoiceExtractionConfig>
