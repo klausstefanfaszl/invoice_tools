@@ -29,6 +29,7 @@ if "!_USE_PY!"=="1" (set RUNNER=py "!_PY!") else (set RUNNER="!_EXE!")
 ::  Modus:   dry    – Simulation, keine Dateien gespeichert
 ::           unread – nur ungelesene Mails (Standard)
 ::           all    – alle Mails verarbeiten
+::           archiv – wie unread + erfolgreich verarbeitete Mails in Archiv-Ordner verschieben
 :: ============================================================
 set MODUS=unread
 if not "%~1"=="" set MODUS=%~1
@@ -36,6 +37,7 @@ if not "%~1"=="" set MODUS=%~1
 if /i "%MODUS%"=="dry"    goto :start
 if /i "%MODUS%"=="unread" goto :start
 if /i "%MODUS%"=="all"    goto :start
+if /i "%MODUS%"=="archiv" goto :start
 
 echo.
 echo  Unbekannter Modus: %MODUS%
@@ -44,6 +46,7 @@ echo  Verwendung: %~nx0 [modus]
 echo  Modi:       dry    ^(Simulation^)
 echo              unread ^(nur ungelesene Mails, Standard^)
 echo              all    ^(alle Mails^)
+echo              archiv ^(wie unread, verschiebt verarbeitete Mails in Archiv-Ordner^)
 echo.
 exit /b 1
 

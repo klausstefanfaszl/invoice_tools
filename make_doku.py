@@ -423,11 +423,14 @@ def build_content(styles, usable_width):
         ["Parameter", "Kurz", "Standard", "Beschreibung"],
         [
             ["--modus MODUS", "-m", "(Pflicht)",
-             "dry=Simulation · unread=nur ungelesene Mails · all=alle Mails"],
+             "dry · unread · all · archiv  (siehe 4.2)"],
             ["--config DATEI", "-c", "invoice_inbox_config.xml",
              "XML-Konfigurationsdatei"],
             ["--debug LEVEL", "-d", "0",
              "0=aus · 1=Pfad · 2=Details · 3=Vollausgabe"],
+            ["--log DATEI", "-l", "(kein Log)",
+             "Protokolldatei; ohne -d wird stdout vollständig dorthin umgeleitet "
+             "(kein Ausgabe auf stdout — Exit-Code weiterhin über %errorlevel% verfügbar)"],
             ["--dry-run", "–", "–",
              "Simulation kombinierbar mit -m all oder -m unread"],
             ["--bzv MODUS", "-b", "–",
@@ -443,16 +446,29 @@ def build_content(styles, usable_width):
     # 4.2 Modi
     story.append(h2("4.2 Modi", styles))
     tbl = make_table(
-        ["Modus", "Dateien speichern", "Als gelesen markieren", "Welche Mails"],
+        ["Modus", "Speichern", "Als gelesen", "Archivieren", "Welche Mails"],
         [
-            ["dry",    "Nein", "Nein", "Nur ungelesene — zeigt was gespeichert würde"],
-            ["unread", "Ja",   "Ja",   "Nur ungelesene Mails"],
-            ["all",    "Ja",   "Ja",   "Alle Mails (gelesen + ungelesen)"],
+            ["dry",    "Nein", "Nein", "Nein",
+             "Nur ungelesene — zeigt was gespeichert würde"],
+            ["unread", "Ja",   "Ja",   "Nein",
+             "Nur ungelesene Mails"],
+            ["all",    "Ja",   "Ja",   "Nein",
+             "Alle Mails (gelesen + ungelesen)"],
+            ["archiv", "Ja",   "Ja",   "Ja",
+             "Nur ungelesene — verschiebt erfolgreich verarbeitete Mails "
+             "in den konfigurierten Archiv-Ordner (Standard: \"Archiv\")"],
         ],
         styles,
-        col_widths=[W * 0.13, W * 0.20, W * 0.23, W * 0.44],
+        col_widths=[W * 0.13, W * 0.13, W * 0.13, W * 0.13, W * 0.48],
     )
     story.append(tbl)
+    story.append(sp(4))
+    story.append(note(
+        "<b>Archiv-Ordner konfigurieren:</b> &lt;ArchiveFolder&gt;Archiv&lt;/ArchiveFolder&gt; "
+        "im &lt;Mailbox&gt;-Block der invoice_inbox_config.xml. "
+        "Fehlt der Eintrag, wird bei Modus <i>archiv</i> automatisch der Ordner \"Archiv\" verwendet.",
+        styles,
+    ))
 
     # 4.3 Unterstützte Postfach-Typen
     story.append(h2("4.3 Unterstützte Postfach-Typen", styles))
@@ -516,8 +532,17 @@ def build_content(styles, usable_width):
     story.append(code_block(
         "invoice_tools.exe inbox -m dry\n"
         "invoice_tools.exe inbox -m unread -c invoice_inbox_config.xml\n"
-        "invoice_tools.exe inbox -m all",
+        "invoice_tools.exe inbox -m archiv -b export\n"
+        "invoice_tools.exe inbox -m unread -b export -l inbox.log",
         W, styles,
+    ))
+    story.append(sp(4))
+    story.append(note(
+        "Mit <b>-l inbox.log</b> und ohne <b>-d</b> wird kein Text auf stdout ausgegeben. "
+        "Alle Verarbeitungsmeldungen landen in der Logdatei. "
+        "Fehlermeldungen (stderr) bleiben immer sichtbar. "
+        "Der Exit-Code steht dem aufrufenden Batch-Skript weiterhin über %errorlevel% zur Verfügung.",
+        styles,
     ))
 
     # ------------------------------------------------------------------
@@ -600,7 +625,8 @@ def build_content(styles, usable_width):
     story.append(sp(4))
     story.append(body(
         "Mögliche Modi für <b>rechnungseingang_in.bat</b>: "
-        "(Standard: <i>unread</i>) · <i>dry</i> (Simulation) · <i>all</i> (alle Mails)",
+        "(Standard: <i>unread</i>) · <i>dry</i> (Simulation) · <i>all</i> (alle Mails) · "
+        "<i>archiv</i> (wie unread + verarbeitete Mails in Archiv-Ordner verschieben)",
         styles,
     ))
 
@@ -608,17 +634,48 @@ def build_content(styles, usable_width):
     # 7. Exit-Codes
     # ------------------------------------------------------------------
     story.append(h1("7. Exit-Codes", styles))
+    story.append(body(
+        "Das Tool <b>inbox</b> meldet den Verarbeitungsstatus immer als Exit-Code an das "
+        "aufrufende Skript — unabhängig davon, ob die Ausgabe auf stdout oder in eine "
+        "Log-Datei umgeleitet wurde.",
+        styles,
+    ))
+    story.append(sp(4))
+
+    story.append(h2("7.1 inbox", styles))
+    tbl = make_table(
+        ["Code", "Konstante", "Bedeutung"],
+        [
+            ["0", "OK",         "Erfolgreich — alle Rechnungen gespeichert (inkl. keine Mails gefunden)"],
+            ["1", "CONFIG",     "Konfigurationsfehler — Config-Datei fehlt, ungültig oder Pflichtfeld leer"],
+            ["2", "VERBINDUNG", "Verbindungsfehler — Postfach nicht erreichbar oder Netzwerkfehler"],
+            ["3", "KI-ABBRUCH", "KI-Abbruch — alle konfigurierten KI-Provider nicht verfügbar"],
+            ["4", "TEILERFOLG", "Teilerfolg — mindestens 1 Rechnung gespeichert, aber mindestens 1 Fehler"],
+            ["5", "ALLE FEHL",  "Alle Anhänge fehlgeschlagen — Mails vorhanden, aber 0 Rechnungen gespeichert"],
+        ],
+        styles,
+        col_widths=[W * 0.08, W * 0.18, W * 0.74],
+    )
+    story.append(tbl)
+    story.append(sp(6))
+
+    story.append(h2("7.2 extractor", styles))
     tbl = make_table(
         ["Code", "Bedeutung"],
         [
-            ["0", "Erfolgreich abgeschlossen"],
-            ["1", "Keine verwertbaren Rechnungen / Verbindungsfehler / Konfigurationsfehler"],
-            ["2", "KI-API nicht verfügbar (alle konfigurierten Provider fehlgeschlagen)"],
+            ["0", "Erfolgreich — mind. 1 PDF verarbeitet"],
+            ["1", "Fehler — Konfiguration ungültig, keine PDFs gefunden oder Ausgabefehler"],
         ],
         styles,
         col_widths=[W * 0.10, W * 0.90],
     )
     story.append(tbl)
+    story.append(sp(4))
+    story.append(note(
+        "Tipp für Batch-Skripte: <b>if %errorlevel% NEQ 0 ...</b> prüft ob ein Fehler vorliegt. "
+        "Für differenzierte Auswertung: <b>if %errorlevel% EQU 4 ...</b> usw.",
+        styles,
+    ))
 
     # ------------------------------------------------------------------
     # 8. IBAN-Validierung

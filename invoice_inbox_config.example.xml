@@ -36,6 +36,9 @@
     <MarkAsRead>true</MarkAsRead>
     <!-- Maximale Anzahl Mails pro Lauf -->
     <Limit>100</Limit>
+    <!-- Erfolgreich verarbeitete Mails in diesen Ordner verschieben.
+         Leer lassen oder weglassen → keine Archivierung. -->
+    <ArchiveFolder>Archiv</ArchiveFolder>
   </Mailbox>
 
   <!--
@@ -53,6 +56,7 @@
     <OnlyUnread>true</OnlyUnread>
     <MarkAsRead>true</MarkAsRead>
     <Limit>100</Limit>
+    <ArchiveFolder>Archiv</ArchiveFolder>
   </Mailbox>
 
   GMX:
@@ -66,6 +70,7 @@
     <OnlyUnread>true</OnlyUnread>
     <MarkAsRead>true</MarkAsRead>
     <Limit>100</Limit>
+    <ArchiveFolder>Archiv</ArchiveFolder>
   </Mailbox>
 
   T-Online:
@@ -79,6 +84,7 @@
     <OnlyUnread>true</OnlyUnread>
     <MarkAsRead>true</MarkAsRead>
     <Limit>100</Limit>
+    <ArchiveFolder>Archiv</ArchiveFolder>
   </Mailbox>
 
   Office 365 / Outlook.com via IMAP:
@@ -92,6 +98,7 @@
     <OnlyUnread>true</OnlyUnread>
     <MarkAsRead>true</MarkAsRead>
     <Limit>100</Limit>
+    <ArchiveFolder>Archiv</ArchiveFolder>
   </Mailbox>
   -->
 
@@ -177,6 +184,63 @@
     <!-- Verwendungszweck-Template
          Platzhalter: {InvoiceNumber}, {InvoiceDate}, {SupplierName} -->
     <RmtInfTemplate>Rechnung {InvoiceNumber} vom {InvoiceDate}</RmtInfTemplate>
+
+    <!-- ── Konto-Zuordnung ──────────────────────────────────────────────────
+         DefaultAccount: wird verwendet wenn keine Routing-Regel greift.
+         Account:        weitere Bankverbindungen, referenzierbar per AccountId.
+         Routing:        Regeln zur Konto-Auswahl — erste zutreffende greift.
+                         Innerhalb einer <Rule> müssen ALLE Bedingungen passen (AND).
+                         Leere/fehlende Bedingung = beliebig (passt immer).
+
+         Bedingungen in <Rule accountId="...">:
+           <PaymentType>     Substring im extrahierten Zahlungsart-Feld
+                             (z.B. "Gutschrift", "Lastschrift", "Überweisung")
+           <SupplierPattern> Regulärer Ausdruck gegen den Lieferantennamen
+                             (z.B. "Telekom|Vodafone", "Amazon.*")
+    ─────────────────────────────────────────────────────────────────────── -->
+    <AccountMapping>
+      <DefaultAccount>
+        <AccountId>hauptkonto</AccountId>
+        <Name>Firma GmbH</Name>
+        <AcctIBAN>DE12300400100050015340</AcctIBAN>
+        <AcctNo>50015340</AcctNo>
+        <AcctBIC>COBADEFFXXX</AcctBIC>
+        <AcctBankCode>30040010</AcctBankCode>
+      </DefaultAccount>
+
+      <!-- Weiteres Konto (optional, beliebig viele) -->
+      <!--
+      <Account>
+        <AccountId>gutschriftskonto</AccountId>
+        <Name>Firma GmbH - Gutschriften</Name>
+        <AcctIBAN>DE98300400100987654321</AcctIBAN>
+        <AcctNo>987654321</AcctNo>
+        <AcctBIC>COBADEFFXXX</AcctBIC>
+        <AcctBankCode>30040010</AcctBankCode>
+      </Account>
+      -->
+
+      <!-- Routing-Regeln: erste zutreffende Regel gewinnt -->
+      <!--
+      <Routing>
+        Gutschriften immer auf Gutschriftskonto:
+        <Rule accountId="gutschriftskonto">
+          <PaymentType>Gutschrift</PaymentType>
+        </Rule>
+
+        Bestimmte Lieferanten auf abweichendes Konto:
+        <Rule accountId="gutschriftskonto">
+          <SupplierPattern>Telekom|Vodafone</SupplierPattern>
+        </Rule>
+
+        Kombination: nur wenn BEIDE Bedingungen passen:
+        <Rule accountId="gutschriftskonto">
+          <PaymentType>Überweisung</PaymentType>
+          <SupplierPattern>Amazon</SupplierPattern>
+        </Rule>
+      </Routing>
+      -->
+    </AccountMapping>
   </BankingZV>
 
 </InboxProcessorConfig>

@@ -1,5 +1,7 @@
 build/
 dist/
+Eingangsrechnungen/
+Excel/
 _internal/
 _testdaten/
 invoice_tools.exe

@@ -54,12 +54,21 @@ import tempfile
 import unicodedata
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Callable, Dict, Iterator, List, Optional
 
 # InvoiceExtractor aus demselben Verzeichnis laden
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from invoice_extractor import InvoiceExtractor, KiAbbruchFehler
+
+
+# ── Exit-Codes ────────────────────────────────────────────────────────────────
+_EXIT_OK         = 0   # Erfolgreich (inkl. keine Mails / alle übersprungen)
+_EXIT_CONFIG     = 1   # Konfigurationsfehler
+_EXIT_VERBINDUNG = 2   # Verbindungsfehler (Postfach nicht erreichbar)
+_EXIT_KI         = 3   # KI-Abbruch (alle Provider nicht verfügbar)
+_EXIT_TEILERFOLG = 4   # Teilerfolg: mind. 1 Rechnung gespeichert, mind. 1 Fehler
+_EXIT_ALLE_FEHL  = 5   # Alle Anhänge fehlgeschlagen (0 gespeichert, >0 Fehler)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -74,13 +83,18 @@ class MailAttachment:
 
 @dataclass
 class MailMessage:
-    subject:     str
-    received:    str                    # nur für Anzeige
-    attachments: List[MailAttachment]
-    _mark_read:  Callable[[], None]
+    subject:          str
+    received:         str                              # nur für Anzeige
+    attachments:      List[MailAttachment]
+    _mark_read:       Callable[[], None]
+    _move_to_archive: Optional[Callable[[], None]] = None
 
     def mark_as_read(self) -> None:
         self._mark_read()
+
+    def move_to_archive(self) -> None:
+        if self._move_to_archive:
+            self._move_to_archive()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -93,11 +107,12 @@ def _iter_exchange(node: ET.Element, only_unread: bool) -> Iterator[MailMessage]
     from exchangelib import Account, Configuration, Credentials, DELEGATE
     from exchangelib.protocol import BaseProtocol, NoVerifyHTTPAdapter
 
-    email_addr   = _cfg_text(node, 'Email')
-    password     = _cfg_text(node, 'Password')
-    server       = _cfg_text(node, 'Server')
-    folder_name  = _cfg_text(node, 'Folder',      'Inbox')
-    limit        = int(_cfg_text(node, 'Limit',   '100'))
+    email_addr    = _cfg_text(node, 'Email')
+    password      = _cfg_text(node, 'Password')
+    server        = _cfg_text(node, 'Server')
+    folder_name   = _cfg_text(node, 'Folder',        'Inbox')
+    limit         = int(_cfg_text(node, 'Limit',     '100'))
+    archive_name  = _cfg_text(node, 'ArchiveFolder', '')
 
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter
@@ -124,6 +139,22 @@ def _iter_exchange(node: ET.Element, only_unread: bool) -> Iterator[MailMessage]
             print(f'Warnung: Ordner "{folder_name}" nicht gefunden, verwende Posteingang.',
                   file=sys.stderr)
 
+    # Archiv-Ordner suchen (Geschwister von Inbox auf Konto-Ebene)
+    archive_folder = None
+    if archive_name:
+        try:
+            archive_folder = next(
+                (f for f in account.inbox.parent.children
+                 if f.name.lower() == archive_name.lower()),
+                None,
+            )
+            if archive_folder is None:
+                print(f'Warnung: Exchange-Archiv-Ordner "{archive_name}" nicht gefunden.',
+                      file=sys.stderr)
+        except Exception as exc:
+            print(f'Warnung: Archiv-Ordner konnte nicht gesucht werden: {exc}',
+                  file=sys.stderr)
+
     query = target.all().order_by('-datetime_received')
     if only_unread:
         query = query.filter(is_read=False)
@@ -142,11 +173,15 @@ def _iter_exchange(node: ET.Element, only_unread: bool) -> Iterator[MailMessage]
             m.is_read = True
             m.save(update_fields=['is_read'])
 
+        def _move_exchange(m=mail, f=archive_folder):
+            m.move(f)
+
         yield MailMessage(
             subject=mail.subject or '(kein Betreff)',
             received=str(mail.datetime_received),
             attachments=attachments,
             _mark_read=_mark,
+            _move_to_archive=_move_exchange if archive_folder else None,
         )
 
 
@@ -193,10 +228,11 @@ def _iter_imap(node: ET.Element, only_unread: bool) -> Iterator[MailMessage]:
     email_addr   = _cfg_text(node, 'Email')
     password     = _cfg_text(node, 'Password')
     server       = _cfg_text(node, 'Server')
-    port         = int(_cfg_text(node, 'Port',        '993'))
-    use_ssl      = _cfg_text(node, 'SSL',             'true').lower() == 'true'
-    folder_name  = _cfg_text(node, 'Folder',          'INBOX')
-    limit        = int(_cfg_text(node, 'Limit',       '100'))
+    port         = int(_cfg_text(node, 'Port',         '993'))
+    use_ssl      = _cfg_text(node, 'SSL',              'true').lower() == 'true'
+    folder_name  = _cfg_text(node, 'Folder',           'INBOX')
+    limit        = int(_cfg_text(node, 'Limit',        '100'))
+    archive_name = _cfg_text(node, 'ArchiveFolder',    '')
 
     conn = imaplib.IMAP4_SSL(server, port) if use_ssl else imaplib.IMAP4(server, port)
     try:
@@ -238,11 +274,20 @@ def _iter_imap(node: ET.Element, only_unread: bool) -> Iterator[MailMessage]:
                 except Exception:
                     pass
 
+            def _move_imap(u=uid, c=conn, folder=archive_name):
+                try:
+                    c.uid('copy', u, f'"{folder}"')
+                    c.uid('store', u, '+FLAGS', '\\Deleted')
+                    c.expunge()
+                except Exception:
+                    pass
+
             yield MailMessage(
                 subject=subject,
                 received=received,
                 attachments=attachments,
                 _mark_read=_mark,
+                _move_to_archive=_move_imap if archive_name else None,
             )
     finally:
         try:
@@ -333,6 +378,17 @@ class _BzvKonto:
 
 
 @dataclass
+class _BzvRegel:
+    """Eine Routing-Regel: weist Rechnungen einem bestimmten Konto zu.
+    Alle angegebenen Bedingungen müssen zutreffen (AND).
+    Leere Bedingung = beliebig (passt immer).
+    """
+    account_id:       str          # Ziel-AccountId (aus <AccountMapping>)
+    payment_type:     str = ''     # Substring-Match im Feld PaymentType (case-insensitiv)
+    supplier_pattern: str = ''     # Regulärer Ausdruck gegen SupplierName (case-insensitiv)
+
+
+@dataclass
 class _BzvKfg:
     """Gesammelte BankingZV-Konfiguration aus <BankingZV> in der inbox-Config."""
     aktiv:              bool = False   # True wenn WalletPath und ExecutablePath gesetzt
@@ -348,6 +404,7 @@ class _BzvKfg:
     unattended:         bool = True
     standard_konto:     Optional[_BzvKonto] = None
     weitere_konten:     Dict[str, _BzvKonto] = field(default_factory=dict)
+    routing_regeln:     List[_BzvRegel]      = field(default_factory=list)
 
 
 def _lade_bzv_kfg(cfg_root: ET.Element) -> _BzvKfg:
@@ -397,8 +454,48 @@ def _lade_bzv_kfg(cfg_root: ET.Element) -> _BzvKfg:
                     bank_code = _cfg_text(an, 'AcctBankCode', ''),
                 )
 
+        for rule_el in am.findall('Routing/Rule'):
+            aid = rule_el.get('accountId', '').strip()
+            if aid:
+                kfg.routing_regeln.append(_BzvRegel(
+                    account_id       = aid,
+                    payment_type     = _cfg_text(rule_el, 'PaymentType',     ''),
+                    supplier_pattern = _cfg_text(rule_el, 'SupplierPattern', ''),
+                ))
+
     kfg.aktiv = bool(kfg.wallet_pfad)
     return kfg
+
+
+def _select_bzv_konto(fields: dict, kfg: '_BzvKfg') -> Optional[_BzvKonto]:
+    """Wählt das BankingZV-Konto anhand der Routing-Regeln.
+    Erste zutreffende Regel gewinnt; Fallback: standard_konto.
+    Innerhalb einer Regel müssen alle angegebenen Bedingungen passen (AND).
+    """
+    payment_type = (fields.get('PaymentType') or '').strip()
+    supplier     = (fields.get('SupplierName') or '').strip()
+
+    for regel in kfg.routing_regeln:
+        # PaymentType-Bedingung: Substring-Match (case-insensitiv)
+        if regel.payment_type:
+            if regel.payment_type.lower() not in payment_type.lower():
+                continue
+        # SupplierPattern-Bedingung: regulärer Ausdruck
+        if regel.supplier_pattern:
+            try:
+                if not re.search(regel.supplier_pattern, supplier, re.IGNORECASE):
+                    continue
+            except re.error:
+                continue
+        # Alle Bedingungen erfüllt → passendes Konto suchen
+        konto = kfg.weitere_konten.get(regel.account_id)
+        if konto is None and kfg.standard_konto and \
+                regel.account_id == kfg.standard_konto.konto_id:
+            konto = kfg.standard_konto
+        if konto:
+            return konto
+
+    return kfg.standard_konto
 
 
 def _parse_betrag(wert: str) -> Optional[float]:
@@ -634,10 +731,13 @@ def run(argv=None):
             'Modi:\n'
             '  dry    Simulation: zeigt was gespeichert würde, ohne Dateien zu schreiben\n'
             '  unread Nur ungelesene Mails verarbeiten und speichern\n'
-            '  all    Alle Mails verarbeiten und speichern\n\n'
+            '  all    Alle Mails verarbeiten und speichern\n'
+            '  archiv Wie unread, verschiebt erfolgreich verarbeitete Mails zusätzlich\n'
+            '         in den Archiv-Ordner (<ArchiveFolder> in Config, Standard: "Archiv")\n\n'
             'Beispiele:\n'
             '  python3 inbox_processor.py -m dry\n'
             '  python3 inbox_processor.py -m unread -c invoice_inbox_config.xml\n'
+            '  python3 inbox_processor.py -m archiv -c invoice_inbox_config.xml\n'
             '  python3 inbox_processor.py -m all -c andere_config.xml -d 2'
         ),
     )
@@ -645,8 +745,9 @@ def run(argv=None):
                         metavar='CONFIGDATEI',
                         help='XML-Konfigurationsdatei (Standard: invoice_inbox_config.xml)')
     parser.add_argument('-m', '--modus', required=True,
-                        choices=['dry', 'unread', 'all'], metavar='MODUS',
-                        help='dry=Simulation (nur ungelesene) | unread=nur ungelesene | all=alle Mails')
+                        choices=['dry', 'unread', 'all', 'archiv'], metavar='MODUS',
+                        help='dry=Simulation | unread=nur ungelesene | all=alle | '
+                             'archiv=ungelesene + Archivierung nach Verarbeitung')
     parser.add_argument('--dry-run', action='store_true', default=False,
                         help='Simulation: keine Dateien speichern, kein BankingZV-Aufruf '
                              '(kombinierbar mit -m all oder -m unread)')
@@ -660,11 +761,29 @@ def run(argv=None):
                         help='BankingZV-Export aktivieren: '
                              'dry=nur Anzeige | json=Anzeige+JSON-Datei | export=+BankingZV-Aufruf. '
                              'Wallet und Token kommen aus invoice_inbox_config.xml.')
+    parser.add_argument('-l', '--log', default=None, metavar='LOGDATEI',
+                        help='Protokolldatei; ohne -d wird stdout vollständig dorthin '
+                             'umgeleitet (kein Ausgabe auf stdout im Normalbetrieb)')
     if argv is not None and len(argv) == 0:
         parser.print_help()
         sys.exit(0)
 
     args = parser.parse_args(argv)
+
+    # ── Log-Datei / stdout-Umleitung ─────────────────────────────────────────
+    _log_fh      = None
+    _orig_stdout = sys.stdout
+    if args.log:
+        try:
+            _log_fh = open(os.path.abspath(args.log), 'w', encoding='utf-8')
+            print(f'# inbox_processor — {datetime.now():%Y-%m-%d %H:%M:%S}'
+                  f' — Modus: {args.modus}', file=_log_fh)
+            if args.debug == 0:
+                sys.stdout = _log_fh    # alle print() → Log, stdout stumm
+        except OSError as e:
+            print(f'Warnung: Log-Datei konnte nicht geöffnet werden: {e}',
+                  file=sys.stderr)
+            _log_fh = None
 
     # ── Config laden ──────────────────────────────────────────────────────────
     config_path = os.path.abspath(args.config)
@@ -747,118 +866,167 @@ def run(argv=None):
 
     # ── Modus auswerten ───────────────────────────────────────────────────────
     dry_run     = args.modus == 'dry' or args.dry_run
-    only_unread = args.modus in ('dry', 'unread')
+    only_unread = args.modus in ('dry', 'unread', 'archiv')
 
-    # ── Verbindung aufbauen ───────────────────────────────────────────────────
+    # Bei Modus "archiv": ArchiveFolder sicherstellen (Config-Wert oder Default "Archiv")
+    if args.modus == 'archiv':
+        af_el = mailbox_node.find('ArchiveFolder')
+        if af_el is None:
+            af_el = ET.SubElement(mailbox_node, 'ArchiveFolder')
+        if not (af_el.text and af_el.text.strip()):
+            af_el.text = 'Archiv'
+
+    # ── Verbindung aufbauen und Mails verarbeiten ─────────────────────────────
     print(f'Verbinde mit {mailbox_type.upper()}-Postfach ({email_addr})...')
     print(f'Modus: {args.modus}')
 
-    if mailbox_type == 'exchange':
-        mail_iter = _iter_exchange(mailbox_node, only_unread)
-    else:
-        mail_iter = _iter_imap(mailbox_node, only_unread)
-
-    # ── InvoiceExtractor ─────────────────────────────────────────────────────
     extractor  = InvoiceExtractor(extractor_config, debug_level=args.debug,
                                    api_config_path=args.api)
-    dry_prefix = '[DRY-RUN] ' if dry_run else ''
-    count_ok   = 0
-    count_err  = 0
+    dry_prefix       = '[DRY-RUN] ' if dry_run else ''
+    count_ok         = 0
+    count_err        = 0
+    _verbindungsfehler = False
 
-    for mail in mail_iter:
-        print(f'\nMail: {mail.subject}  ({mail.received})')
-        mail_had_error = False
+    try:
+        if mailbox_type == 'exchange':
+            mail_iter = _iter_exchange(mailbox_node, only_unread)
+        else:
+            mail_iter = _iter_imap(mailbox_node, only_unread)
 
-        for attachment in mail.attachments:
-            print(f'  Anhang: {attachment.name}')
+        for mail in mail_iter:
+            print(f'\nMail: {mail.subject}  ({mail.received})')
+            mail_had_error = False
 
-            # Dateinamen-Filter prüfen
-            name_lower = attachment.name.lower()
-            matched = next((p for p in skip_patterns if p in name_lower), None)
-            if matched:
-                print(f'  Übersprungen (Dateiname enthält "{matched}")')
-                continue
+            for attachment in mail.attachments:
+                print(f'  Anhang: {attachment.name}')
 
-            tmp_fd, tmp_path = tempfile.mkstemp(suffix='.pdf')
-            try:
-                with os.fdopen(tmp_fd, 'wb') as fh:
-                    fh.write(attachment.content)
-
-                try:
-                    fields = extractor.extract(tmp_path)
-                except KiAbbruchFehler as e:
-                    print(f'\nFEHLER: {e}', file=sys.stderr)
-                    print('Verarbeitung abgebrochen — KI-API nicht verfügbar.',
-                          file=sys.stderr)
-                    print(f'\n{dry_prefix}Abgeschlossen: {count_ok} gespeichert, '
-                          f'{count_err} Fehler (vor Abbruch).')
-                    sys.exit(2)
-
-                # Rechnungsfilter: Pflichtfelder prüfen
-                missing_fields = [f for f in required_fields
-                                  if not fields.get(f)]
-                if missing_fields:
-                    print(f'  Übersprungen (keine Rechnung) — '
-                          f'fehlende Felder: {", ".join(missing_fields)}')
+                # Dateinamen-Filter prüfen
+                name_lower = attachment.name.lower()
+                matched = next((p for p in skip_patterns if p in name_lower), None)
+                if matched:
+                    print(f'  Übersprungen (Dateiname enthält "{matched}")')
                     continue
 
-                subdir   = _build_subdir(subpath_pattern, fields, fallback_dir)
-                dest_dir = os.path.join(base_dir, subdir) if subdir else base_dir
-                filename = _build_filename(filename_pattern, fields,
-                                           supplier_max, invoicenr_max)
-                dest_path = _unique_path(os.path.join(dest_dir, filename + '.pdf'))
+                tmp_fd, tmp_path = tempfile.mkstemp(suffix='.pdf')
+                try:
+                    with os.fdopen(tmp_fd, 'wb') as fh:
+                        fh.write(attachment.content)
 
-                print(f'  {dry_prefix}-> {dest_path}')
-                print(f'    Lieferant    : {fields.get("SupplierName")  or "-"}')
-                print(f'    Rechnungsnr. : {fields.get("InvoiceNumber") or "-"}')
-                print(f'    Datum        : {fields.get("InvoiceDate")   or "-"}')
-                print(f'    Brutto       : {fields.get("GrossAmount")   or "-"}')
-
-                if not dry_run:
-                    os.makedirs(dest_dir, exist_ok=True)
-                    shutil.copy2(tmp_path, dest_path)
-
-                # BankingZV-Eintrag vorbereiten (auch im Dry-Run für Vorschau)
-                if bzv_modus and bzv_kfg.aktiv and bzv_kfg.standard_konto:
                     try:
-                        bzv_e = _erstelle_bzv_eintrag(
-                            fields, bzv_kfg.standard_konto, bzv_kfg)
-                        bzv_eintraege.append(bzv_e)
-                        if bzv_e['SvcLvl'] == 'SEPA':
-                            typ = 'Überweisung   '
-                        elif bzv_e.get('PmtMtd') == 'DD':
-                            typ = 'Erw. Gutschrift'
-                        else:
-                            typ = 'Erw. Zahlung  '
-                        print(f'    BankingZV  : {typ}  {bzv_e["Amt"]} EUR')
-                    except Exception as exc:
-                        print(f'  Warnung: BankingZV-Eintrag fehlgeschlagen: {exc}',
+                        fields = extractor.extract(tmp_path)
+                    except KiAbbruchFehler as e:
+                        print(f'\nFEHLER: {e}', file=sys.stderr)
+                        print('Verarbeitung abgebrochen — KI-API nicht verfügbar.',
                               file=sys.stderr)
+                        print(f'\n{dry_prefix}Abgeschlossen: {count_ok} gespeichert, '
+                              f'{count_err} Fehler (vor KI-Abbruch).')
+                        sys.exit(_EXIT_KI)
 
-                count_ok += 1
+                    # Rechnungsfilter: Pflichtfelder prüfen
+                    missing_fields = [f for f in required_fields
+                                      if not fields.get(f)]
+                    if missing_fields:
+                        print(f'  Übersprungen (keine Rechnung) — '
+                              f'fehlende Felder: {", ".join(missing_fields)}')
+                        continue
 
-            except Exception as exc:
-                print(f'  Fehler: {exc}', file=sys.stderr)
-                count_err     += 1
-                mail_had_error = True
+                    subdir   = _build_subdir(subpath_pattern, fields, fallback_dir)
+                    dest_dir = os.path.join(base_dir, subdir) if subdir else base_dir
+                    filename = _build_filename(filename_pattern, fields,
+                                               supplier_max, invoicenr_max)
+                    dest_path = _unique_path(os.path.join(dest_dir, filename + '.pdf'))
 
-            finally:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+                    print(f'  {dry_prefix}-> {dest_path}')
+                    print(f'    Lieferant    : {fields.get("SupplierName")  or "-"}')
+                    print(f'    Rechnungsnr. : {fields.get("InvoiceNumber") or "-"}')
+                    print(f'    Datum        : {fields.get("InvoiceDate")   or "-"}')
+                    print(f'    Brutto       : {fields.get("GrossAmount")   or "-"}')
 
-        # Mail als gelesen markieren — nur wenn alle Anhänge erfolgreich
-        if mark_as_read and not mail_had_error and not dry_run:
-            try:
-                mail.mark_as_read()
-            except Exception as exc:
-                print(f'  Warnung: Mail konnte nicht als gelesen markiert werden: {exc}',
-                      file=sys.stderr)
+                    if not dry_run:
+                        os.makedirs(dest_dir, exist_ok=True)
+                        shutil.copy2(tmp_path, dest_path)
 
-    # BankingZV-Export (nach Abschluss aller Mails)
-    if bzv_modus and bzv_eintraege:
-        _exportiere_zu_bankingzv(bzv_eintraege, bzv_kfg, bzv_modus, dry_run)
+                    # BankingZV-Eintrag vorbereiten (auch im Dry-Run für Vorschau)
+                    if bzv_modus and bzv_kfg.aktiv:
+                        konto = _select_bzv_konto(fields, bzv_kfg)
+                        if konto is None:
+                            print(f'  Warnung: Kein BankingZV-Konto gefunden — '
+                                  f'Eintrag übersprungen.', file=sys.stderr)
+                        else:
+                            try:
+                                bzv_e = _erstelle_bzv_eintrag(fields, konto, bzv_kfg)
+                                bzv_eintraege.append(bzv_e)
+                                if bzv_e['SvcLvl'] == 'SEPA':
+                                    typ = 'Überweisung   '
+                                elif bzv_e.get('PmtMtd') == 'DD':
+                                    typ = 'Erw. Gutschrift'
+                                else:
+                                    typ = 'Erw. Zahlung  '
+                                konto_hint = (f'  [{konto.konto_id}]'
+                                              if konto.konto_id != (
+                                                  bzv_kfg.standard_konto.konto_id
+                                                  if bzv_kfg.standard_konto else '')
+                                              else '')
+                                print(f'    BankingZV  : {typ}  {bzv_e["Amt"]} EUR'
+                                      f'{konto_hint}')
+                            except Exception as exc:
+                                print(f'  Warnung: BankingZV-Eintrag fehlgeschlagen: {exc}',
+                                      file=sys.stderr)
 
-    print(f'\n{dry_prefix}Abgeschlossen: {count_ok} gespeichert, {count_err} Fehler.')
+                    count_ok += 1
+
+                except Exception as exc:
+                    print(f'  Fehler: {exc}', file=sys.stderr)
+                    count_err     += 1
+                    mail_had_error = True
+
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+
+            # Mail als gelesen markieren — nur wenn alle Anhänge erfolgreich
+            if mark_as_read and not mail_had_error and not dry_run:
+                try:
+                    mail.mark_as_read()
+                except Exception as exc:
+                    print(f'  Warnung: Mail konnte nicht als gelesen markiert werden: {exc}',
+                          file=sys.stderr)
+
+            # Mail in Archiv-Ordner verschieben — nur wenn ohne Fehler und kein Dry-Run
+            if not mail_had_error and not dry_run and mail._move_to_archive:
+                try:
+                    mail.move_to_archive()
+                    print(f'  Mail in Archiv verschoben.')
+                except Exception as exc:
+                    print(f'  Warnung: Mail konnte nicht in Archiv verschoben werden: {exc}',
+                          file=sys.stderr)
+
+        # BankingZV-Export (nach Abschluss aller Mails)
+        if bzv_modus and bzv_eintraege:
+            _exportiere_zu_bankingzv(bzv_eintraege, bzv_kfg, bzv_modus, dry_run)
+
+        print(f'\n{dry_prefix}Abgeschlossen: {count_ok} gespeichert, {count_err} Fehler.')
+
+    except SystemExit:
+        raise   # KI-Abbruch oder sys.exit() weitergeben (hat eigene Ausgabe)
+    except Exception as exc:
+        print(f'\nVerbindungsfehler: {exc}', file=sys.stderr)
+        _verbindungsfehler = True
+        print(f'\n{dry_prefix}Abgeschlossen: {count_ok} gespeichert, '
+              f'{count_err} Fehler (Verbindungsabbruch).')
+    finally:
+        sys.stdout = _orig_stdout
+        if _log_fh:
+            _log_fh.close()
+
+    # ── Exit-Code an aufrufende Skripte melden ────────────────────────────────
+    if _verbindungsfehler:
+        sys.exit(_EXIT_VERBINDUNG)
+    if count_err > 0 and count_ok == 0:
+        sys.exit(_EXIT_ALLE_FEHL)
+    if count_err > 0:
+        sys.exit(_EXIT_TEILERFOLG)
+    sys.exit(_EXIT_OK)
 
 
 if __name__ == '__main__':
