@@ -10,24 +10,34 @@ This workspace contains **invoice_tools** — a Python toolkit for extracting st
 
 The unified entry point is `invoice_tools.py` (or `invoice_tools.exe` after building):
 
-```bash
-# Extract fields from a single PDF
-python3 invoice_tools.py extractor rechnung.pdf
+**Important:** On this system Python is invoked as `py`, not `python3`.
 
-# Extract multiple PDFs → PDF summary
-python3 invoice_tools.py extractor -f pdf -o output.pdf "/pfad/*.pdf"
+```cmd
+:: Extract fields from a single PDF
+py invoice_tools.py extractor rechnung.pdf
 
-# Extract with custom config and debug output
-python3 invoice_tools.py extractor -c invoice_extractor_config_RE.xml -d 2 rechnung.pdf
+:: Extract multiple PDFs -> PDF summary
+py invoice_tools.py extractor -f pdf -o output.pdf "C:\Pfad\*.pdf"
 
-# Process inbox (dry-run shows what would be saved)
-python3 invoice_tools.py inbox -m dry
-python3 invoice_tools.py inbox -m unread
-python3 invoice_tools.py inbox -m all -c invoice_inbox_config.xml
+:: Extract with custom config and debug output
+py invoice_tools.py extractor -c invoice_extractor_config_RE.xml -d 2 rechnung.pdf
 
-# Help for each sub-tool
-python3 invoice_tools.py extractor --help
-python3 invoice_tools.py inbox --help
+:: Process inbox (dry-run shows what would be saved)
+py invoice_tools.py inbox -m dry          :: dry-run, nur ungelesene Mails
+py invoice_tools.py inbox -m dryall       :: dry-run, ALLE Mails (auch gelesene)
+py invoice_tools.py inbox -m unread
+py invoice_tools.py inbox -m all -c invoice_inbox_config.xml
+
+:: inbox with Excel export
+py invoice_tools.py inbox -m dry -e -d 1                      :: dry-run with cell value preview
+py invoice_tools.py inbox -m unread -e                         :: file PDFs + write Excel row
+py invoice_tools.py inbox -m unread -e -b export               :: + BankingZV
+py invoice_tools.py inbox -m dry -B "F:\Buchhaltung"           :: override BaseDir
+py invoice_tools.py inbox -m unread -B "F:\Buchhaltung" -e     :: override BaseDir + Excel
+
+:: Help for each sub-tool
+py invoice_tools.py extractor --help
+py invoice_tools.py inbox --help
 ```
 
 The individual scripts (`invoice_extractor.py`, `inbox_processor.py`) can also be run directly.
@@ -40,14 +50,15 @@ The individual scripts (`invoice_extractor.py`, `inbox_processor.py`) can also b
 
 ## Building the Executable (PyInstaller)
 
-```bash
-# Recommended: combined exe (extractor + inbox in one binary)
-pyinstaller invoice_tools.spec
-# Output: dist/invoice_tools/invoice_tools.exe
+```cmd
+:: Recommended: combined exe (extractor + inbox in one binary)
+py -m PyInstaller invoice_tools.spec -y
+:: Output: dist\invoice_tools\invoice_tools.exe
+:: Also copied to: src\invoice_tools.exe
 
-# Individual executables (legacy)
-pyinstaller invoice_extractor.spec   # dist/invoice_extractor/invoice_extractor
-pyinstaller inbox_processor.spec     # dist/inbox_processor/inbox_processor
+:: Individual executables (legacy)
+py -m PyInstaller invoice_extractor.spec -y   :: dist\invoice_extractor\invoice_extractor.exe
+py -m PyInstaller inbox_processor.spec -y     :: dist\inbox_processor\inbox_processor.exe
 ```
 
 ## Windows Batch Scripts
@@ -69,7 +80,7 @@ Month parameter accepts `JJJJ/MM` or just `MM` (current year assumed).
 
 - `invoice_tools.py` — Dispatcher; routes `extractor` → `invoice_extractor.main()` and `inbox` → `inbox_processor.main()`
 - `invoice_extractor.py` — `InvoiceExtractor` class + CLI for PDF field extraction
-- `inbox_processor.py` — Connects to Exchange/IMAP, iterates unread mails, extracts PDF attachments via `InvoiceExtractor`, and files them
+- `inbox_processor.py` — Connects to Exchange/IMAP, iterates unread mails, extracts PDF attachments via `InvoiceExtractor`, files them, and optionally exports to BankingZV and/or the Excel Rechnungseingang table
 
 ### Extraction Pipeline (`InvoiceExtractor.extract()`)
 
@@ -117,6 +128,39 @@ Copy from `invoice_inbox_config.example.xml`. Key sections:
 - `<AttachmentFilter>` — `<SkipPattern>` substrings to skip (e.g. `lastschrift`)
 - `<InvoiceFilter>` — `<RequiredField>` names that must be non-empty for a PDF to be filed
 - `<InvoiceExtractor>` — `<Config>` path to the extractor config (default: `invoice_extractor_config_RE.xml`)
+- `<ExcelExport>` — Optional; activated via `-e / --export-excel` CLI flag
+  - `<DateiPfad>` — Full path to the `.xlsx` file
+  - `<Tabellenblatt>` — Sheet name (default: `ER`)
+  - `<Tabellenname>` — Excel table name for column resolution (default: `tb_rechnungen`)
+  - `<StandardTyp>` — Value for the TYP column (default: `E`)
+  - `<DuplikatSpalte>` — Column used for duplicate detection (default: `RE-Nr`)
+  - `<Spaltenmapping>` — Optional; overrides built-in field mapping. Each `<Spalte>` element:
+    - `name="..."` — Excel table column name (looked up dynamically at runtime)
+    - `typ="datum|betrag|iban"` — conversion type; omit for plain string
+    - element text — source field name (`InvoiceDate`, `GrossAmount`, …) or special value:
+      - `{StandardTyp}` — value from `<StandardTyp>` config element
+      - `{KontoId}` — account ID resolved via BankingZV routing rules
+  - If `<Spaltenmapping>` is absent, the built-in default (`_EXCEL_DEFAULT_MAPPING` in `inbox_processor.py`) is used
+  - Formula columns (`calculatedColumnFormula`) are detected automatically and copied from the previous row
+  - The table reference (`tbl.ref`) is extended by one row after every successful write
+
+### Excel Export (`inbox_processor.py`)
+
+The Excel export is self-contained within `inbox_processor.py`. Key components:
+
+- **`_ExcelSpalte`** (dataclass) — one mapping entry: `name` (Excel column), `quelle` (source field or `{StandardTyp}`/`{KontoId}`), `typ` (`datum`/`betrag`/`iban`/`""`)
+- **`_EXCEL_DEFAULT_MAPPING`** — module-level list of `_ExcelSpalte`; used when no `<Spaltenmapping>` in config
+- **`_ExcelKfg`** (dataclass) — full Excel export config including `spaltenmapping: List[_ExcelSpalte]`
+- **`_lade_excel_kfg(cfg_root)`** — parses `<ExcelExport>` from inbox config XML
+- **`_schreibe_in_excel(fields, konto_id, kfg, dry_run, debug)`** — main write function:
+  1. Resolves all values via `_wert()` inner function using the mapping
+  2. Opens workbook (always, even in dry-run — needed for duplicate check)
+  3. Looks up named table (`ws.tables[kfg.tabellenname]`) and builds `col_map: Dict[str, int]` from `tableColumns`
+  4. Detects formula columns via `tc.calculatedColumnFormula is not None`
+  5. Runs duplicate check on `kfg.duplikat_spalte` column
+  6. In dry-run with `debug > 0`: prints each column name + resolved value
+  7. Writes data cells, copies formula cells from `last_row`, extends `tbl.ref`
+  8. Suppresses openpyxl `UserWarning` during `load_workbook` via `warnings.catch_warnings()`
 
 ### Dependencies
 
@@ -124,6 +168,8 @@ Copy from `invoice_inbox_config.example.xml`. Key sections:
 - **Pillow** — Image handling for scanned-PDF AI extraction
 - **pytesseract** — Optional OCR for scanned PDFs (requires Tesseract binary)
 - **exchangelib** — Optional Exchange/EWS backend for `inbox_processor`
+- **openpyxl** — Optional Excel export (`-e` flag in `inbox_processor`); must be installed for `<ExcelExport>` to work
+- **reportlab** — PDF generation for `make_doku.py` (documentation builder)
 - **anthropic / openai / google-generativeai** — Optional AI providers
 
 ## Agent Framework Files

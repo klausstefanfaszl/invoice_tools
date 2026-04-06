@@ -243,4 +243,51 @@
     </AccountMapping>
   </BankingZV>
 
+  <!-- ════════════════════════════════════════════════════════════════════════
+       EXCEL-EXPORT  (aktiviert mit -e beim inbox-Aufruf)
+       Schreibt jede erkannte Rechnung als neue Zeile in die Excel-Tabelle
+       Rechnungseingang.xlsx (Blatt ER, Tabelle tb_rechnungen).
+
+       Befüllte Spalten:
+         A  Re-Datum        (InvoiceDate)
+         B  Name/Lieferant  (SupplierName)
+         C  RE-Nr           (InvoiceNumber)
+         D  TYP             (StandardTyp, z.B. E)
+         F  Netto           (NetAmount)
+         G  Brutto          (GrossAmount)
+         K  Fällig_am       (DueDate)
+         M  IBAN            (erste IBAN aus Extraktion)
+         N  Konto-ID        (aus BankingZV-Routing, falls konfiguriert)
+         O-R Formeln werden automatisch aus der Vorgängerzeile kopiert.
+
+       DateiPfad      Vollständiger Pfad zur .xlsx-Datei (Pflicht)
+       Tabellenblatt  Name des Tabellenblatts (Standard: ER)
+       StandardTyp    Wert für TYP-Spalte    (Standard: E)
+       ════════════════════════════════════════════════════════════════════════ -->
+  <ExcelExport>
+    <DateiPfad>C:\Pfad\zur\Rechnungseingang.xlsx</DateiPfad>
+    <Tabellenblatt>ER</Tabellenblatt>
+    <Tabellenname>tb_rechnungen</Tabellenname>
+    <StandardTyp>E</StandardTyp>
+
+    <!-- Spalte für Duplikat-Prüfung (Standard: RE-Nr) -->
+    <DuplikatSpalte>RE-Nr</DuplikatSpalte>
+
+    <!-- Spaltenmapping: Excel-Spaltenname → Extraktionsfeld + Konvertierungstyp -->
+    <!-- typ-Werte: datum | betrag | iban | (leer = unveränderter Text)          -->
+    <!-- Sonderwerte: {StandardTyp} = Wert aus <StandardTyp>                     -->
+    <!--              {KontoId}     = Konto-ID aus BankingZV-Routing             -->
+    <Spaltenmapping>
+      <Spalte name="Re-Datum"       typ="datum" >InvoiceDate</Spalte>
+      <Spalte name="Name/Lieferant"             >SupplierName</Spalte>
+      <Spalte name="RE-Nr"                      >InvoiceNumber</Spalte>
+      <Spalte name="TYP"                        >{StandardTyp}</Spalte>
+      <Spalte name="Netto"          typ="betrag">NetAmount</Spalte>
+      <Spalte name="Brutto"         typ="betrag">GrossAmount</Spalte>
+      <Spalte name="Fällig_am"      typ="datum" >DueDate</Spalte>
+      <Spalte name="IBAN"           typ="iban"  >IBAN</Spalte>
+      <Spalte name="Konto-ID"                   >{KontoId}</Spalte>
+    </Spaltenmapping>
+  </ExcelExport>
+
 </InboxProcessorConfig>

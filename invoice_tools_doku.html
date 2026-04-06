@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>invoice_tools – Technische Dokumentation</title>
+<style>
+/* ── Basisvariablen ──────────────────────────────────────────────────────── */
+:root {
+  --blue:      #1a3a5c;
+  --blue-light:#f0f4f8;
+  --blue-mid:  #2e6da4;
+  --grey:      #666666;
+  --code-bg:   #f5f5f5;
+  --code-bd:   #cccccc;
+  --row-alt:   #f0f4f8;
+}
+
+/* ── Reset / Basis ───────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10pt;
+  line-height: 1.5;
+  color: #222;
+  background: #fff;
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 18mm 20mm;
+}
+
+/* ── Typografie ──────────────────────────────────────────────────────────── */
+h1.doc-title {
+  font-size: 26pt;
+  color: var(--blue);
+  text-align: center;
+  margin-bottom: 4px;
+}
+p.doc-subtitle {
+  font-size: 10pt;
+  color: var(--grey);
+  text-align: center;
+  margin-bottom: 14px;
+}
+hr.title-rule {
+  border: none;
+  border-top: 2px solid var(--blue);
+  margin-bottom: 20px;
+}
+
+h2 { /* Abschnittsüberschriften (1. 2. 3. …) */
+  font-size: 13pt;
+  color: var(--blue);
+  margin-top: 22px;
+  margin-bottom: 5px;
+  padding-bottom: 3px;
+  border-bottom: 1.5px solid var(--blue);
+}
+h3 { /* Unterabschnitte (3.1 3.2 …) */
+  font-size: 11pt;
+  color: var(--blue);
+  margin-top: 14px;
+  margin-bottom: 4px;
+}
+
+p  { margin-bottom: 6px; }
+ul { margin: 4px 0 6px 20px; }
+li { margin-bottom: 2px; }
+
+a  { color: var(--blue-mid); }
+
+/* ── Inhaltsverzeichnis ──────────────────────────────────────────────────── */
+nav.toc {
+  background: var(--blue-light);
+  border: 1px solid var(--code-bd);
+  border-radius: 4px;
+  padding: 12px 18px;
+  margin-bottom: 20px;
+  font-size: 9.5pt;
+}
+nav.toc h2 {
+  border: none;
+  font-size: 10pt;
+  margin: 0 0 8px 0;
+}
+nav.toc ol {
+  margin-left: 18px;
+}
+nav.toc li {
+  margin-bottom: 2px;
+}
+nav.toc a {
+  text-decoration: none;
+  color: var(--blue);
+}
+nav.toc a:hover { text-decoration: underline; }
+
+/* ── Tabellen ────────────────────────────────────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 10px 0;
+  font-size: 9pt;
+}
+table th {
+  background: var(--blue);
+  color: #fff;
+  font-weight: bold;
+  text-align: left;
+  padding: 5px 7px;
+}
+table td {
+  padding: 4px 7px;
+  vertical-align: top;
+  border: 0.4px solid var(--code-bd);
+}
+table tr:nth-child(even) td { background: var(--row-alt); }
+table tr:nth-child(odd)  td { background: #fff; }
+
+/* ── Code-Blöcke ─────────────────────────────────────────────────────────── */
+pre, code {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 8.5pt;
+}
+pre {
+  background: var(--code-bg);
+  border: 0.5px solid var(--code-bd);
+  border-radius: 3px;
+  padding: 8px 10px;
+  margin: 6px 0 10px 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.45;
+}
+code { background: var(--code-bg); padding: 1px 3px; border-radius: 2px; }
+
+/* ── Hinweis-Box ─────────────────────────────────────────────────────────── */
+.note {
+  font-style: italic;
+  color: var(--grey);
+  font-size: 9pt;
+  margin: 4px 0 8px 0;
+}
+
+/* ── Abstandshelfer ──────────────────────────────────────────────────────── */
+.mt { margin-top: 10px; }
+
+/* ── Druck-Optimierung ───────────────────────────────────────────────────── */
+@media print {
+  body { padding: 0; max-width: 100%; font-size: 9.5pt; }
+  nav.toc { display: none; }        /* Inhaltsverzeichnis im Druck weglassen */
+  h2 { page-break-after: avoid; }
+  h3 { page-break-after: avoid; }
+  table, pre { page-break-inside: avoid; }
+  .no-break { page-break-inside: avoid; }
+  a { color: var(--blue); text-decoration: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Titelblock                                                            -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h1 class="doc-title">invoice_tools</h1>
+<p class="doc-subtitle">Technische Dokumentation &nbsp;·&nbsp; Version 1.2 &nbsp;·&nbsp; UHDE Datentechnik</p>
+<hr class="title-rule">
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- Inhaltsverzeichnis                                                    -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<nav class="toc">
+  <h2>Inhalt</h2>
+  <ol>
+    <li><a href="#s1">Überblick</a></li>
+    <li><a href="#s2">Systemvoraussetzungen</a></li>
+    <li><a href="#s3">Tool: extractor</a>
+      <ol>
+        <li><a href="#s31">Extraktionsprioritäten</a></li>
+        <li><a href="#s32">Parameter</a></li>
+        <li><a href="#s33">Ausgabeformate</a></li>
+        <li><a href="#s34">Beispielaufrufe</a></li>
+      </ol>
+    </li>
+    <li><a href="#s4">Tool: inbox</a>
+      <ol>
+        <li><a href="#s41">Parameter</a></li>
+        <li><a href="#s42">Modi</a></li>
+        <li><a href="#s43">Unterstützte Postfach-Typen</a></li>
+        <li><a href="#s44">Dateiablage</a></li>
+        <li><a href="#s45">Filter</a></li>
+        <li><a href="#s46">Excel-Export</a></li>
+        <li><a href="#s47">Beispielaufrufe</a></li>
+      </ol>
+    </li>
+    <li><a href="#s5">Tool: mailto</a>
+      <ol>
+        <li><a href="#s51">Parameter</a></li>
+        <li><a href="#s52">Adressmodi</a></li>
+        <li><a href="#s53">SMTP-Konfiguration</a></li>
+        <li><a href="#s54">Datenbankabfrage (MySQL)</a></li>
+        <li><a href="#s55">Beispielaufrufe</a></li>
+      </ol>
+    </li>
+    <li><a href="#s6">Konfigurationsdateien</a>
+      <ol>
+        <li><a href="#s61">KI-Konfiguration</a></li>
+        <li><a href="#s62">Postfach-Konfiguration (inbox)</a></li>
+        <li><a href="#s63">Mailto-Konfiguration</a></li>
+      </ol>
+    </li>
+    <li><a href="#s7">Batch-Skripte</a></li>
+    <li><a href="#s8">Exit-Codes</a></li>
+    <li><a href="#s9">IBAN-Validierung</a></li>
+    <li><a href="#s10">Abhängigkeiten &amp; Weiterentwicklung</a></li>
+  </ol>
+</nav>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 1. Überblick                                                          -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s1">1. Überblick</h2>
+<p><strong>invoice_tools.exe</strong> ist ein kombiniertes Kommandozeilenprogramm mit drei integrierten Tools:</p>
+
+<table>
+  <tr><th>Tool</th><th>Funktion</th></tr>
+  <tr><td><code>extractor</code></td><td>Felder aus PDFs extrahieren (Lieferant, Beträge, Datum, IBAN …)</td></tr>
+  <tr><td><code>inbox</code></td><td>Rechnungsanhänge automatisch aus E-Mail-Postfach laden und ablegen</td></tr>
+  <tr><td><code>mailto</code></td><td>PDF-Ausgangsrechnungen automatisch per E-Mail versenden</td></tr>
+</table>
+
+<p><strong>Grundsyntax:</strong></p>
+<pre>invoice_tools.exe extractor [Optionen] PDF [PDF ...]
+invoice_tools.exe inbox     -m MODUS [Optionen]
+invoice_tools.exe mailto    --rg-nr N | --min-rg-nr N [Optionen]</pre>
+
+<p>Alle drei Tools teilen das <em>_internal</em>-Verzeichnis. Für den Betrieb sind keine weiteren Installationen erforderlich.</p>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 2. Systemvoraussetzungen                                              -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s2">2. Systemvoraussetzungen</h2>
+
+<table>
+  <tr><th>Komponente</th><th>Erforderlich</th><th>Hinweis</th></tr>
+  <tr><td>invoice_tools.exe + _internal/</td><td>Ja</td><td>Im ZIP-Paket enthalten</td></tr>
+  <tr><td>Config-XML-Dateien</td><td>Ja</td><td>Im gleichen Verzeichnis wie die EXE ablegen</td></tr>
+  <tr><td>Internetzugang / API-Key</td><td>Nein</td><td>Nur für KI-Modus (Claude / OpenAI / Gemini)</td></tr>
+  <tr><td>Tesseract OCR</td><td>Nein</td><td>Nur für gescannte PDFs ohne KI-Modus</td></tr>
+  <tr><td>Exchange / IMAP-Zugangsdaten</td><td>Für inbox</td><td>In invoice_inbox_config.xml konfigurieren</td></tr>
+  <tr><td>SMTP-Zugangsdaten / -Server</td><td>Für mailto</td><td>In invoice_tools_mailto_config.xml konfigurieren</td></tr>
+  <tr><td>mysql-connector-python</td><td>Nein</td><td>Nur für mailto Adressmodus 2 / 3 (Datenbankabfrage)</td></tr>
+</table>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 3. Tool: extractor                                                    -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s3">3. Tool: extractor</h2>
+<p>Extrahiert strukturierte Daten (Lieferant, Rechnungsnummer, Beträge, Datum, IBAN, Zahlungsart)
+aus PDF-Rechnungen. Unterstützt ZUGFeRD/Factur-X, KI-Analyse und Regex-Fallback.</p>
+
+<h3 id="s31">3.1 Extraktionsprioritäten</h3>
+<table>
+  <tr><th>Priorität</th><th>Methode</th><th>Voraussetzung</th></tr>
+  <tr><td>1 (höchste)</td><td>ZUGFeRD/Factur-X XML</td><td>Eingebettetes XML im PDF vorhanden</td></tr>
+  <tr><td>2</td><td>KI-Analyse</td><td>API-Key in der Config konfiguriert</td></tr>
+  <tr><td>3 (Fallback)</td><td>Regex-Extraktion</td><td>Durchsuchbarer Text im PDF</td></tr>
+  <tr><td>–</td><td>OCR (Tesseract)</td><td>Tesseract installiert + gescanntes PDF</td></tr>
+</table>
+
+<h3 id="s32">3.2 Parameter</h3>
+<table>
+  <tr><th>Parameter</th><th>Kurz</th><th>Standard</th><th>Beschreibung</th></tr>
+  <tr><td><code>--config DATEI</code></td><td><code>-c</code></td><td>invoice_extractor_config.xml</td><td>XML-Konfigurationsdatei</td></tr>
+  <tr><td><code>--format FORMAT</code></td><td><code>-f</code></td><td>stdout</td><td>stdout · txt · pdf · csv · json · xml</td></tr>
+  <tr><td><code>--output DATEI</code></td><td><code>-o</code></td><td>(automatisch)</td><td>Ausgabedatei. <code>-o STDOUT</code> leitet auf die Konsole um.</td></tr>
+  <tr><td><code>--logfile DATEI</code></td><td><code>-l</code></td><td>(kein Log)</td><td>Verarbeitungsprotokoll in Datei schreiben</td></tr>
+  <tr><td><code>--debug LEVEL</code></td><td><code>-d</code></td><td>0</td><td>0=aus · 1=Pfad · 2=Details · 3=Vollausgabe</td></tr>
+  <tr><td><code>--api DATEI</code></td><td><code>-a</code></td><td>(automatisch)</td><td>Zentrale KI-API-Konfigurationsdatei</td></tr>
+</table>
+
+<h3 id="s33">3.3 Ausgabeformate</h3>
+<table>
+  <tr><th>Format</th><th>Beschreibung</th></tr>
+  <tr><td><code>stdout</code></td><td>Tabellarische Ausgabe direkt auf die Konsole (Standard)</td></tr>
+  <tr><td><code>txt</code></td><td>Identisch mit stdout, in Datei gespeichert</td></tr>
+  <tr><td><code>pdf</code></td><td>Formatierte PDF-Tabelle mit Spaltenbezeichnungen und optionaler Summenzeile</td></tr>
+  <tr><td><code>csv</code></td><td>Kommagetrennte Werte, geeignet für Excel-Import</td></tr>
+  <tr><td><code>json</code></td><td>Maschinenlesbare JSON-Ausgabe</td></tr>
+  <tr><td><code>xml</code></td><td>XML-Ausgabe</td></tr>
+</table>
+
+<h3 id="s34">3.4 Beispielaufrufe</h3>
+<p>Einzelne Rechnung auf Konsole:</p>
+<pre>invoice_tools.exe extractor rechnung.pdf</pre>
+
+<p>Alle PDFs eines Monats als PDF-Bericht mit Log:</p>
+<pre>invoice_tools.exe extractor -c invoice_extractor_config_RA.xml ^
+    -f pdf -o Rechnungsausgang_01.pdf -l log.log ^
+    "C:\Buchhaltung\2026\01\*.pdf"</pre>
+
+<p>CSV-Ausgabe für Excel:</p>
+<pre>invoice_tools.exe extractor -f csv -o ausgabe.csv "*.pdf"</pre>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 4. Tool: inbox                                                        -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s4">4. Tool: inbox</h2>
+<p>Verbindet sich mit einem Exchange- oder IMAP-Postfach, lädt ungelesene E-Mails mit PDF-Anhängen,
+extrahiert Rechnungsfelder und speichert die PDFs automatisch in der konfigurierten Verzeichnisstruktur.
+Nicht-Rechnungen werden übersprungen.</p>
+
+<h3 id="s41">4.1 Parameter</h3>
+<table>
+  <tr><th>Parameter</th><th>Kurz</th><th>Standard</th><th>Beschreibung</th></tr>
+  <tr><td><code>--modus MODUS</code></td><td><code>-m</code></td><td>(Pflicht)</td><td>dry · unread · all · archiv  (siehe 4.2)</td></tr>
+  <tr><td><code>--config DATEI</code></td><td><code>-c</code></td><td>invoice_inbox_config.xml</td><td>XML-Konfigurationsdatei</td></tr>
+  <tr><td><code>--debug LEVEL</code></td><td><code>-d</code></td><td>0</td><td>0=aus · 1=Pfad · 2=Details · 3=Vollausgabe</td></tr>
+  <tr><td><code>--log DATEI</code></td><td><code>-l</code></td><td>(kein Log)</td><td>Protokolldatei; ohne -d wird stdout vollständig dorthin umgeleitet</td></tr>
+  <tr><td><code>--dry-run</code></td><td>–</td><td>–</td><td>Simulation, kombinierbar mit -m all oder -m unread</td></tr>
+  <tr><td><code>--bzv MODUS</code></td><td><code>-b</code></td><td>–</td><td>BankingZV-Export: dry=Anzeige · json=+JSON-Datei · export=+BankingZV-Aufruf</td></tr>
+  <tr><td><code>--bdir VERZ.</code></td><td><code>-B</code></td><td>–</td><td>Basisverzeichnis für PDF-Ablage; überschreibt &lt;BaseDir&gt; aus der Config</td></tr>
+  <tr><td><code>--export-excel</code></td><td><code>-e</code></td><td>–</td><td>Rechnungsdaten in Excel-Eingangstabelle schreiben (Duplikat-Prüfung aktiv)</td></tr>
+  <tr><td><code>--api DATEI</code></td><td><code>-a</code></td><td>(automatisch)</td><td>Zentrale KI-API-Konfigurationsdatei</td></tr>
+</table>
+
+<h3 id="s42">4.2 Modi</h3>
+<table>
+  <tr><th>Modus</th><th>Speichern</th><th>Als gelesen</th><th>Archivieren</th><th>Welche Mails</th></tr>
+  <tr><td><code>dry</code></td><td>Nein</td><td>Nein</td><td>Nein</td><td>Nur ungelesene — zeigt was gespeichert würde</td></tr>
+  <tr><td><code>unread</code></td><td>Ja</td><td>Ja</td><td>Nein</td><td>Nur ungelesene Mails</td></tr>
+  <tr><td><code>all</code></td><td>Ja</td><td>Ja</td><td>Nein</td><td>Alle Mails (gelesen + ungelesen)</td></tr>
+  <tr><td><code>archiv</code></td><td>Ja</td><td>Ja</td><td>Ja</td><td>Nur ungelesene — verschiebt verarbeitete Mails in den Archiv-Ordner</td></tr>
+</table>
+<p class="note"><strong>Archiv-Ordner konfigurieren:</strong> &lt;ArchiveFolder&gt;Archiv&lt;/ArchiveFolder&gt; im &lt;Mailbox&gt;-Block der invoice_inbox_config.xml.</p>
+
+<h3 id="s43">4.3 Unterstützte Postfach-Typen</h3>
+<table>
+  <tr><th>Typ</th><th>Protokoll</th><th>Typische Anbieter</th><th>Pflichtfelder</th></tr>
+  <tr><td><code>exchange</code></td><td>EWS (HTTPS)</td><td>Microsoft Exchange, Office 365, On-Premise</td><td>Email, Password</td></tr>
+  <tr><td><code>imap</code></td><td>IMAP4 SSL</td><td>Gmail, GMX, T-Online, Outlook.com</td><td>Email, Password, Server</td></tr>
+</table>
+<p class="note"><strong>Hinweis:</strong> Gmail: Bei aktivierter 2-Faktor-Authentifizierung ist ein App-Passwort erforderlich.</p>
+
+<h3 id="s44">4.4 Dateiablage</h3>
+<p>PDFs werden automatisch in der folgenden Struktur abgelegt:</p>
+<pre>&lt;BaseDir&gt;/&lt;YYYY&gt;/&lt;MM&gt;/ER_MMTT_&lt;Lieferant&gt;_&lt;RechnungsNr&gt;.pdf</pre>
+<p>Rechnungen ohne erkennbares Datum landen in <em>&lt;BaseDir&gt;/_unbekannt/</em>.
+Vorhandene Dateien werden nicht überschrieben — bei Namenskollision wird ein Suffix angehängt (_2, _3, …).</p>
+
+<h3 id="s45">4.5 Filter</h3>
+<table>
+  <tr><th>Filter</th><th>Config-Element</th><th>Funktion</th></tr>
+  <tr><td>Dateinamen-Filter</td><td><code>&lt;AttachmentFilter&gt;&lt;SkipPattern&gt;</code></td><td>Anhänge überspringen, deren Dateiname das Muster enthält (z.B. "summary", "lastschrift")</td></tr>
+  <tr><td>Pflichtfeld-Filter</td><td><code>&lt;InvoiceFilter&gt;&lt;RequiredField&gt;</code></td><td>PDF wird nur gespeichert, wenn alle Pflichtfelder extrahiert wurden (z.B. InvoiceNumber, GrossAmount)</td></tr>
+</table>
+
+<h3 id="s46">4.6 Excel-Export (<code>--export-excel</code> / <code>-e</code>)</h3>
+<p>Mit dem Flag <strong>-e</strong> wird jede erfolgreich verarbeitete Rechnung als neue Zeile in eine
+Excel-Datei geschrieben. Die Zieltabelle wird über den Tabellennamen (Standard: <em>tb_rechnungen</em>)
+referenziert — Spaltenreihenfolge und -namen werden dynamisch aus der Tabellendefinition ermittelt.</p>
+
+<p><strong>Befüllte Spalten (konfigurierbar per &lt;Spaltenmapping&gt;):</strong></p>
+<table>
+  <tr><th>Excel-Spalte</th><th>Quelle</th><th>Typ</th></tr>
+  <tr><td>Re-Datum</td><td>InvoiceDate</td><td>datum</td></tr>
+  <tr><td>Name/Lieferant</td><td>SupplierName</td><td>Text</td></tr>
+  <tr><td>RE-Nr</td><td>InvoiceNumber</td><td>Text</td></tr>
+  <tr><td>TYP</td><td>{StandardTyp}</td><td>Text (aus Config)</td></tr>
+  <tr><td>Netto</td><td>NetAmount</td><td>betrag</td></tr>
+  <tr><td>Brutto</td><td>GrossAmount</td><td>betrag</td></tr>
+  <tr><td>Fällig_am</td><td>DueDate</td><td>datum</td></tr>
+  <tr><td>IBAN</td><td>IBAN</td><td>iban (erstes Element)</td></tr>
+  <tr><td>Konto-ID</td><td>{KontoId}</td><td>Text (aus BankingZV-Routing)</td></tr>
+</table>
+
+<p>Spalten mit <strong>calculatedColumnFormula</strong> (z.B. Monat, Jahr, Steuer) werden automatisch erkannt
+und aus der Vorgängerzeile kopiert.</p>
+<p><strong>Duplikat-Prüfung:</strong> Vor dem Schreiben wird die konfigurierte Duplikat-Spalte (Standard: <em>RE-Nr</em>)
+geprüft. Ein bereits vorhandener Eintrag erzeugt einen Info-Hinweis — kein Fehler, kein Abbruch.</p>
+<p><strong>Dry-Run-Vorschau:</strong> Mit <code>-m dry -e -d 1</code> werden die Zellwerte aller zu schreibenden
+Spalten angezeigt, ohne die Datei zu verändern.</p>
+
+<p><strong>Config-Block &lt;ExcelExport&gt; in invoice_inbox_config.xml:</strong></p>
+<pre>&lt;ExcelExport&gt;
+  &lt;DateiPfad&gt;C:\Pfad\zur\Rechnungseingang.xlsx&lt;/DateiPfad&gt;
+  &lt;Tabellenblatt&gt;ER&lt;/Tabellenblatt&gt;
+  &lt;Tabellenname&gt;tb_rechnungen&lt;/Tabellenname&gt;
+  &lt;StandardTyp&gt;E&lt;/StandardTyp&gt;
+  &lt;DuplikatSpalte&gt;RE-Nr&lt;/DuplikatSpalte&gt;
+  &lt;Spaltenmapping&gt;
+    &lt;!-- name=Excel-Spalte  typ=datum|betrag|iban|(leer=Text) --&gt;
+    &lt;Spalte name="Re-Datum"       typ="datum" &gt;InvoiceDate&lt;/Spalte&gt;
+    &lt;Spalte name="Name/Lieferant"             &gt;SupplierName&lt;/Spalte&gt;
+    &lt;Spalte name="RE-Nr"                      &gt;InvoiceNumber&lt;/Spalte&gt;
+    &lt;Spalte name="TYP"                        &gt;{StandardTyp}&lt;/Spalte&gt;
+    &lt;Spalte name="Netto"          typ="betrag"&gt;NetAmount&lt;/Spalte&gt;
+    &lt;Spalte name="Brutto"         typ="betrag"&gt;GrossAmount&lt;/Spalte&gt;
+    &lt;Spalte name="Faellig_am"     typ="datum" &gt;DueDate&lt;/Spalte&gt;
+    &lt;Spalte name="IBAN"           typ="iban"  &gt;IBAN&lt;/Spalte&gt;
+    &lt;Spalte name="Konto-ID"                   &gt;{KontoId}&lt;/Spalte&gt;
+  &lt;/Spaltenmapping&gt;
+&lt;/ExcelExport&gt;</pre>
+<p class="note"><strong>Hinweis:</strong> Fehlt &lt;Spaltenmapping&gt;, wird das eingebaute Standard-Mapping verwendet.
+Die Tabelle wird nach jedem Einfügen automatisch auf die neue Zeile ausgedehnt.</p>
+
+<h3 id="s47">4.7 Beispielaufrufe</h3>
+<pre>invoice_tools.exe inbox -m dry
+invoice_tools.exe inbox -m unread -c invoice_inbox_config.xml
+invoice_tools.exe inbox -m archiv -b export
+invoice_tools.exe inbox -m unread -b export -l inbox.log
+invoice_tools.exe inbox -m dry -e -d 1              (Vorschau Excel-Zellwerte)
+invoice_tools.exe inbox -m unread -e                (PDF ablegen + Excel schreiben)
+invoice_tools.exe inbox -m unread -e -b export      (PDF + Excel + BankingZV)
+invoice_tools.exe inbox -m dry -B "F:\Buchhaltung"  (BaseDir per Parameter)
+invoice_tools.exe inbox -m unread -B "F:\Buchhaltung" -e</pre>
+<p class="note">Mit <strong>-l inbox.log</strong> und ohne <strong>-d</strong> wird kein Text auf stdout ausgegeben.
+Fehlermeldungen (stderr) bleiben immer sichtbar. Der Exit-Code steht dem Batch-Skript über %errorlevel% zur Verfügung.</p>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 5. Tool: mailto                                                       -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s5">5. Tool: mailto</h2>
+<p>Versendet PDF-Ausgangsrechnungen automatisch per E-Mail. Das Tool durchsucht ein konfiguriertes
+Verzeichnis nach PDF-Dateien, extrahiert aus dem Dateinamen die Rechnungsnummer, ermittelt die
+Empfängeradresse auf einem der vier Wege und sendet die PDF als Anhang mit einem standardisierten
+HTML-Mailtext.</p>
+
+<p>Vor dem Versand wird standardmäßig eine Bestätigung eingeholt.
+Mit <code>--noconfirm</code> entfällt diese. Im <code>--dry-run</code>-Modus wird nichts gesendet.</p>
+
+<h3 id="s51">5.1 Parameter</h3>
+<table>
+  <tr><th>Parameter</th><th>Kurz</th><th>Standard</th><th>Beschreibung</th></tr>
+  <tr><td><code>--rg-nr N</code></td><td><code>-r</code></td><td>–</td><td>Einzelne Rechnungsnummer (Pflicht, alternativ zu --min-rg-nr)</td></tr>
+  <tr><td><code>--min-rg-nr N</code></td><td>–</td><td>–</td><td>Kleinste zu versendende Rechnungsnummer (Pflicht, alternativ zu --rg-nr)</td></tr>
+  <tr><td><code>--max-rg-nr N</code></td><td>–</td><td>–</td><td>Größte zu versendende Rechnungsnummer (nur zusammen mit --min-rg-nr)</td></tr>
+  <tr><td><code>--adress-modus M</code></td><td><code>-a</code></td><td>0</td><td>Adressermittlung: 0=Test-Adresse, 1=PDF-Text, 2=DB, 3=PDF+DB (s. 5.2)</td></tr>
+  <tr><td><code>--rg-datum DATUM</code></td><td>–</td><td>–</td><td>Nur PDFs mit diesem Dateidatum versenden. Formate: <code>TT.MM</code> · <code>TT.MM.JJ</code> · <code>TT.MM.JJJJ</code>. Bei <code>TT.MM</code> wird das aktuelle Jahr verwendet.</td></tr>
+  <tr><td><code>--dry-run</code></td><td>–</td><td>–</td><td>Simulation: zeigt was gesendet würde, ohne tatsächlich zu senden</td></tr>
+  <tr><td><code>--noconfirm</code></td><td>–</td><td>–</td><td>Mails sofort versenden ohne Bestätigungsdialog</td></tr>
+  <tr><td><code>--debug LEVEL</code></td><td><code>-d</code></td><td>0</td><td>0=aus · 1=Überblick · 2=Details</td></tr>
+  <tr><td><code>--config DATEI</code></td><td><code>-c</code></td><td>invoice_tools_mailto_config.xml</td><td>XML-Konfigurationsdatei</td></tr>
+</table>
+<p class="note"><strong>Hinweis:</strong> Entweder <code>--rg-nr</code> oder <code>--min-rg-nr</code> muss angegeben werden.
+Die beiden Parameter schließen sich gegenseitig aus.</p>
+
+<h3 id="s52">5.2 Adressmodi</h3>
+<table>
+  <tr><th>Modus</th><th>Quelle</th><th>Beschreibung</th></tr>
+  <tr><td><strong>0</strong> (Standard)</td><td>Konfigurationsdatei</td><td>Feste Test-Adresse aus <code>&lt;TestAdresse&gt;</code> — alle Mails gehen an dieselbe Adresse. Ideal für Tests.</td></tr>
+  <tr><td><strong>1</strong></td><td>PDF-Text</td><td>Sucht nach dem konfigurierten Marker (Standard: <code>email:</code>) im selektierbaren Text der PDF. Beispiel im PDF: <em>E-Mail: kunde@example.com</em></td></tr>
+  <tr><td><strong>2</strong></td><td>MySQL-Datenbank</td><td>Führt bis zu zwei SQL-Abfragen aus. SQL2 wird nur verwendet, wenn SQL1 kein Ergebnis liefert. Die erste Spalte des Ergebnisses ist immer die E-Mail-Adresse; eine optionale zweite Spalte kann die Auftragsnummer enthalten (siehe 5.4).</td></tr>
+  <tr><td><strong>3</strong></td><td>PDF-Text + DB</td><td>Versucht zuerst Modus 1 (PDF-Text), bei Misserfolg Modus 2 (Datenbank).</td></tr>
+</table>
+
+<h3 id="s53">5.3 SMTP-Konfiguration</h3>
+<table>
+  <tr><th>Element</th><th>Beschreibung</th></tr>
+  <tr><td><code>&lt;Host&gt;</code></td><td>SMTP-Servername oder IP-Adresse</td></tr>
+  <tr><td><code>&lt;Port&gt;</code></td><td>Port: 25 (plain), 587 (STARTTLS), 465 (SMTPS)</td></tr>
+  <tr><td><code>&lt;SSL&gt;</code></td><td>true = direktes SMTPS (Port 465), false = STARTTLS oder plain</td></tr>
+  <tr><td><code>&lt;TLS&gt;</code></td><td>true = STARTTLS verwenden; false = plain SMTP (z.B. internes Relay Port 25). Wird automatisch auf false gesetzt wenn Port=25 oder SSL=true.</td></tr>
+  <tr><td><code>&lt;User&gt;</code></td><td>Benutzername für SMTP-Login; leer lassen bei anonymem Relay (kein Login)</td></tr>
+  <tr><td><code>&lt;Password&gt;</code></td><td>Passwort für SMTP-Login</td></tr>
+  <tr><td><code>&lt;Absender&gt;</code></td><td>From-Adresse, z.B. <code>Firma GmbH &lt;rechnung@firma.de&gt;</code></td></tr>
+  <tr><td><code>&lt;AntwortAn&gt;</code></td><td>Optionale Reply-To-Adresse; leer lassen wenn nicht benötigt</td></tr>
+</table>
+
+<p><strong>Minimal-Konfiguration für internes Relay (Port 25, kein Login):</strong></p>
+<pre>&lt;SMTP&gt;
+  &lt;Host&gt;mailserver.intern&lt;/Host&gt;
+  &lt;Port&gt;25&lt;/Port&gt;
+  &lt;SSL&gt;false&lt;/SSL&gt;
+  &lt;TLS&gt;false&lt;/TLS&gt;
+  &lt;User&gt;&lt;/User&gt;
+  &lt;Password&gt;&lt;/Password&gt;
+  &lt;Absender&gt;UHDE Datentechnik GmbH &lt;rechnung@uhde.de&gt;&lt;/Absender&gt;
+&lt;/SMTP&gt;</pre>
+
+<h3 id="s54">5.4 Datenbankabfrage (MySQL)</h3>
+<p>Für Adressmodus 2 und 3 kann eine MySQL-Datenbank konfiguriert werden.
+Der Platzhalter <code>{rgnr}</code> in den SQL-Abfragen wird durch die Rechnungsnummer (Integer) ersetzt.
+Die erste Spalte des Abfrageergebnisses wird immer als E-Mail-Adresse verwendet.</p>
+
+<p>Gibt die SQL-Abfrage eine <strong>zweite Spalte</strong> zurück, wird deren Wert als
+<strong>Auftragsnummer</strong> interpretiert. Das Tool sucht dann im PDF-Verzeichnis nach
+weiteren PDF-Dateien, deren Dateiname die letzten X Ziffern dieser Auftragsnummer enthält
+(X konfigurierbar über <code>&lt;AuftragNrStellen&gt;</code>). Gefundene Auftrags-PDFs
+werden der E-Mail als zusätzliche Anhänge beigefügt.</p>
+
+<pre>&lt;Datenbank&gt;
+  &lt;Host&gt;localhost&lt;/Host&gt;
+  &lt;Port&gt;3306&lt;/Port&gt;
+  &lt;DbName&gt;meine_datenbank&lt;/DbName&gt;
+  &lt;User&gt;dbbenutzer&lt;/User&gt;
+  &lt;Password&gt;passwort&lt;/Password&gt;
+  &lt;!-- Primärabfrage; Spalte 2 = Auftragsnummer (optional) --&gt;
+  &lt;SQL1&gt;SELECT email, auftragsnr FROM auftraege WHERE Nummer*1 = {rgnr}&lt;/SQL1&gt;
+  &lt;!-- Fallback-Abfrage (optional) --&gt;
+  &lt;SQL2&gt;SELECT email FROM kunden WHERE kunden_nr =
+        (SELECT kunden_nr FROM auftraege WHERE Nummer*1 = {rgnr})&lt;/SQL2&gt;
+  &lt;!-- Letzte X Stellen der Auftragsnummer für PDF-Suche; 0 = deaktiviert --&gt;
+  &lt;AuftragNrStellen&gt;5&lt;/AuftragNrStellen&gt;
+&lt;/Datenbank&gt;</pre>
+
+<p>Beispiel: Auftragsnummer <code>AUF-2026-01234</code>, <code>&lt;AuftragNrStellen&gt;5&lt;/AuftragNrStellen&gt;</code>
+→ Das Tool sucht nach Dateien, die <code>01234</code> im Dateinamen enthalten
+(z.B. <code>Auftragsbestätigung_01234.pdf</code>). Die Rechnungs-PDF selbst wird dabei übersprungen.</p>
+
+<p>Standardmäßig wird im <code>&lt;PdfVerzeichnis&gt;</code> gesucht. Mit dem optionalen Element
+<code>&lt;PdfVerzeichnis_Auftraege&gt;</code> kann ein separates Verzeichnis für Auftrags-PDFs
+angegeben werden:</p>
+
+<pre>&lt;PdfVerzeichnis&gt;C:\Rechnungsausgang&lt;/PdfVerzeichnis&gt;
+&lt;PdfVerzeichnis_Auftraege&gt;C:\Auftraege&lt;/PdfVerzeichnis_Auftraege&gt;</pre>
+
+<p class="note"><strong>Installation mysql-connector-python:</strong> <code>py -m pip install mysql-connector-python</code>.
+Ist das Paket nicht installiert, gibt das Tool eine Warnung aus und überspringt die Datenbankabfrage.</p>
+
+<h3 id="s55">5.5 Beispielaufrufe</h3>
+<pre>invoice_tools.exe mailto --rg-nr 4711
+invoice_tools.exe mailto --rg-nr 4711 --dry-run
+invoice_tools.exe mailto --rg-nr 4711 --adress-modus 3
+invoice_tools.exe mailto --min-rg-nr 100 --max-rg-nr 200
+invoice_tools.exe mailto --min-rg-nr 100 --adress-modus 3 --noconfirm
+invoice_tools.exe mailto --min-rg-nr 100 --rg-datum 15.04.2026
+invoice_tools.exe mailto --min-rg-nr 4700 --rg-datum 15.04
+invoice_tools.exe mailto --rg-nr 4711 --debug 2</pre>
+
+<p>Über <code>rechnung_mailto.bat</code> (flexibel, alle Optionen durchgereicht):</p>
+<pre>rechnung_mailto.bat 4711
+rechnung_mailto.bat 4711 --dry-run
+rechnung_mailto.bat 4711 --adress-modus 3
+rechnung_mailto.bat --min-rg-nr 100 --max-rg-nr 200
+rechnung_mailto.bat --min-rg-nr 100 --adress-modus 3 --noconfirm</pre>
+
+<p>Über <code>Rechnungen_versenden.bat</code> (für den produktiven monatlichen Versand, Adressmodus 2 voreingestellt, interaktive Abfrage wenn keine Nummer angegeben):</p>
+<pre>Rechnungen_versenden.bat                           (fragt nach Startnummer)
+Rechnungen_versenden.bat 4700
+Rechnungen_versenden.bat 4700 4750
+Rechnungen_versenden.bat 4700 --rg-datum 15.04.2026
+Rechnungen_versenden.bat --rg-datum 15.04           (fragt nach Startnummer)</pre>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 6. Konfigurationsdateien                                              -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s6">6. Konfigurationsdateien</h2>
+<table>
+  <tr><th>Datei</th><th>Verwendung</th></tr>
+  <tr><td><code>invoice_extractor_config.xml</code></td><td>extractor: Vollversion mit allen Feldern (Standard)</td></tr>
+  <tr><td><code>invoice_extractor_config_RE.xml</code></td><td>extractor: Eingangsrechnungen — Feld SupplierName, berechneter MwSt.-Satz</td></tr>
+  <tr><td><code>invoice_extractor_config_RA.xml</code></td><td>extractor: Ausgangsrechnungen — Feld RecipientName, Summenzeile aktiv</td></tr>
+  <tr><td><code>invoice_inbox_config.xml</code></td><td>inbox: Exchange-/IMAP-Zugangsdaten, Ablagestruktur, Filter, BankingZV-Export, Excel-Export</td></tr>
+  <tr><td><code>invoice_tools_mailto_config.xml</code></td><td>mailto: SMTP-Zugangsdaten, PDF-Verzeichnis, Mail-Vorlage, Datenbankabfrage</td></tr>
+  <tr><td><code>invoice_tools_api_config.xml</code></td><td>Zentrale KI-API-Konfiguration (alle Provider / Keys)</td></tr>
+</table>
+
+<p>Jede Config-Datei liegt als <code>*.example.xml</code> (vollständig kommentierte Vorlage) vor.
+Für den Betrieb Vorlage kopieren, umbenennen und anpassen.</p>
+
+<h3 id="s61">6.1 KI-Konfiguration (invoice_tools_api_config.xml)</h3>
+<p>Zentrale Konfigurationsdatei für alle KI-Provider. Mehrere &lt;AI&gt;-Blöcke möglich —
+beim Start wird automatisch der erste funktionierende Provider per Testanfrage ausgewählt.</p>
+<pre>&lt;AI&gt;
+  &lt;Provider&gt;gemini&lt;/Provider&gt;  &lt;!-- claude | openai | gemini --&gt;
+  &lt;Model&gt;gemini-2.5-flash-lite&lt;/Model&gt;
+  &lt;APIKey&gt;AIza...&lt;/APIKey&gt;
+&lt;/AI&gt;</pre>
+
+<h3 id="s62">6.2 Postfach-Konfiguration (invoice_inbox_config.xml)</h3>
+<p>Der Postfachtyp (exchange oder imap) wird über das Attribut am &lt;Mailbox&gt;-Tag gesetzt:</p>
+<pre>&lt;Mailbox type="exchange"&gt;
+  &lt;Email&gt;buchhaltung@firma.de&lt;/Email&gt;
+  &lt;Password&gt;...&lt;/Password&gt;
+  &lt;Server&gt;mail.firma.de&lt;/Server&gt;
+  &lt;MarkAsRead&gt;true&lt;/MarkAsRead&gt;
+  &lt;Limit&gt;100&lt;/Limit&gt;
+&lt;/Mailbox&gt;</pre>
+
+<h3 id="s63">6.3 Mailto-Konfiguration (invoice_tools_mailto_config.xml)</h3>
+<p>Vollständiger Aufbau der Konfigurationsdatei:</p>
+<pre>&lt;MailtoSenderConfig&gt;
+
+  &lt;SMTP&gt;
+    &lt;Host&gt;smtp.firma.de&lt;/Host&gt;
+    &lt;Port&gt;587&lt;/Port&gt;
+    &lt;SSL&gt;false&lt;/SSL&gt;
+    &lt;TLS&gt;true&lt;/TLS&gt;          &lt;!-- false für internes Relay Port 25 --&gt;
+    &lt;User&gt;rechnung@firma.de&lt;/User&gt;
+    &lt;Password&gt;...&lt;/Password&gt;
+    &lt;Absender&gt;Firma GmbH &amp;lt;rechnung@firma.de&amp;gt;&lt;/Absender&gt;
+  &lt;/SMTP&gt;
+
+  &lt;!-- Verzeichnis mit den zu versendenden Ausgangsrechnungs-PDFs --&gt;
+  &lt;PdfVerzeichnis&gt;C:\Rechnungsausgang&lt;/PdfVerzeichnis&gt;
+
+  &lt;!-- Regex für Rechnungsnummer im Dateinamen; named group "rgnr" bevorzugt --&gt;
+  &lt;RgNrRegex&gt;(?P&amp;lt;rgnr&amp;gt;\d+)&lt;/RgNrRegex&gt;
+
+  &lt;MailVorlage&gt;
+    &lt;Betreff&gt;Rechnung Nr. {rgnr}&lt;/Betreff&gt;
+    &lt;HtmlBody&gt;&lt;![CDATA[ ... HTML-Mailinhalt ... ]]&gt;&lt;/HtmlBody&gt;
+  &lt;/MailVorlage&gt;
+
+  &lt;!-- Adressmodus 0: feste Test-Adresse --&gt;
+  &lt;TestAdresse&gt;test@firma.de&lt;/TestAdresse&gt;
+
+  &lt;!-- Suchbegriff für Adressmodus 1 --&gt;
+  &lt;EmailTextMarker&gt;email:&lt;/EmailTextMarker&gt;
+
+  &lt;!-- Adressmodus 2 / 3: MySQL-Datenbank (optional) --&gt;
+  &lt;Datenbank&gt;
+    &lt;Host&gt;localhost&lt;/Host&gt;
+    &lt;Port&gt;3306&lt;/Port&gt;
+    &lt;DbName&gt;meine_db&lt;/DbName&gt;
+    &lt;User&gt;root&lt;/User&gt;
+    &lt;Password&gt;...&lt;/Password&gt;
+    &lt;SQL1&gt;SELECT email, auftragsnr FROM auftraege WHERE Nummer*1 = {rgnr}&lt;/SQL1&gt;
+    &lt;!-- 0 = Auftrags-PDF-Suche deaktiviert --&gt;
+    &lt;AuftragNrStellen&gt;0&lt;/AuftragNrStellen&gt;
+  &lt;/Datenbank&gt;
+
+&lt;/MailtoSenderConfig&gt;</pre>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 7. Batch-Skripte                                                      -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s7">7. Batch-Skripte</h2>
+<table>
+  <tr><th>Skript</th><th>Funktion</th><th>Aufruf</th></tr>
+  <tr><td><code>rechnungseingang_in.bat</code></td><td>Eingangsrechnungen aus Postfach laden und speichern</td><td><code>rechnungseingang_in.bat [modus]</code></td></tr>
+  <tr><td><code>rechnungseingang_ex.bat</code></td><td>Eingangsrechnungen eines Monats als PDF-Bericht</td><td><code>rechnungseingang_ex.bat 2026/01</code></td></tr>
+  <tr><td><code>rechnungsausgang_ex.bat</code></td><td>Ausgangsrechnungen eines Monats als PDF-Bericht</td><td><code>rechnungsausgang_ex.bat 2026/01</code></td></tr>
+  <tr><td><code>rechnung_mailto.bat</code></td><td>Ausgangsrechnungen per E-Mail versenden (flexibel, alle Optionen)</td><td><code>rechnung_mailto.bat 4711 [Optionen]</code></td></tr>
+  <tr><td><code>Rechnungen_versenden.bat</code></td><td>Ausgangsrechnungen versenden (produktiv, Adressmodus 2 voreingestellt)</td><td><code>Rechnungen_versenden.bat [min-rg-nr] [max-rg-nr] [--rg-datum ...]</code></td></tr>
+</table>
+
+<p>Mögliche Modi für <strong>rechnungseingang_in.bat</strong>:
+<em>dry</em> (Simulation) · <em>unread</em> (Standard) · <em>all</em> (alle Mails) · <em>archiv</em> (wie unread + Archivierung).</p>
+
+<p>Für <strong>rechnung_mailto.bat</strong> kann die Rechnungsnummer direkt als erste Zahl angegeben werden,
+alle weiteren Argumente werden an <code>invoice_tools mailto</code> durchgereicht:</p>
+<pre>rechnung_mailto.bat 4711                           (Rechnungsnummer als Kurzform)
+rechnung_mailto.bat 4711 --dry-run
+rechnung_mailto.bat --min-rg-nr 100 --max-rg-nr 200 --noconfirm</pre>
+
+<p><strong>Rechnungen_versenden.bat</strong> ist für den produktiven monatlichen Versand vorgesehen:
+Adressmodus 2 (Datenbank) ist voreingestellt. Wird keine Rechnungsnummer übergeben,
+fragt das Skript interaktiv danach. Numerische Argumente werden als min-rg-nr bzw. max-rg-nr
+interpretiert, alle anderen Argumente (z.B. <code>--rg-datum</code>) werden durchgereicht:</p>
+<pre>Rechnungen_versenden.bat                           (fragt nach Startnummer)
+Rechnungen_versenden.bat 4700
+Rechnungen_versenden.bat 4700 4750
+Rechnungen_versenden.bat 4700 --rg-datum 15.04.2026
+Rechnungen_versenden.bat --rg-datum 15.04           (fragt nach Startnummer)</pre>
+
+<p>Alle Batch-Skripte verwenden automatisch <code>py invoice_tools.py</code> wenn die Quelldatei
+neuer ist als die EXE, sonst <code>invoice_tools.exe</code>.</p>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 8. Exit-Codes                                                         -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s8">8. Exit-Codes</h2>
+<p>Alle Tools melden ihren Verarbeitungsstatus als Exit-Code an das aufrufende Skript.</p>
+
+<h3 id="s81">8.1 inbox</h3>
+<table>
+  <tr><th>Code</th><th>Konstante</th><th>Bedeutung</th></tr>
+  <tr><td>0</td><td>OK</td><td>Erfolgreich — alle Rechnungen gespeichert (inkl. keine Mails gefunden)</td></tr>
+  <tr><td>1</td><td>CONFIG</td><td>Konfigurationsfehler — Config-Datei fehlt, ungültig oder Pflichtfeld leer</td></tr>
+  <tr><td>2</td><td>VERBINDUNG</td><td>Verbindungsfehler — Postfach nicht erreichbar oder Netzwerkfehler</td></tr>
+  <tr><td>3</td><td>KI-ABBRUCH</td><td>KI-Abbruch — alle konfigurierten KI-Provider nicht verfügbar</td></tr>
+  <tr><td>4</td><td>TEILERFOLG</td><td>Teilerfolg — mindestens 1 Rechnung gespeichert, aber mindestens 1 Fehler</td></tr>
+  <tr><td>5</td><td>ALLE FEHL</td><td>Alle Anhänge fehlgeschlagen — Mails vorhanden, aber 0 Rechnungen gespeichert</td></tr>
+</table>
+
+<h3 id="s82">8.2 extractor</h3>
+<table>
+  <tr><th>Code</th><th>Bedeutung</th></tr>
+  <tr><td>0</td><td>Erfolgreich — mind. 1 PDF verarbeitet</td></tr>
+  <tr><td>1</td><td>Fehler — Konfiguration ungültig, keine PDFs gefunden oder Ausgabefehler</td></tr>
+</table>
+
+<h3 id="s83">8.3 mailto</h3>
+<table>
+  <tr><th>Code</th><th>Konstante</th><th>Bedeutung</th></tr>
+  <tr><td>0</td><td>OK</td><td>Erfolgreich — alle Mails gesendet (inkl. keine PDFs gefunden / Dry-Run)</td></tr>
+  <tr><td>1</td><td>CONFIG</td><td>Konfigurationsfehler</td></tr>
+  <tr><td>2</td><td>VERBINDUNG</td><td>SMTP-Verbindungsfehler</td></tr>
+  <tr><td>4</td><td>TEILERFOLG</td><td>Mindestens 1 Mail gesendet, mindestens 1 Fehler</td></tr>
+  <tr><td>5</td><td>ALLE FEHL</td><td>Keine einzige Mail erfolgreich gesendet</td></tr>
+</table>
+
+<p class="note">Tipp für Batch-Skripte: <strong>if %errorlevel% NEQ 0 ...</strong> prüft ob ein Fehler vorliegt.
+Für differenzierte Auswertung: <strong>if %errorlevel% EQU 4 ...</strong> usw.</p>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 9. IBAN-Validierung                                                   -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s9">9. IBAN-Validierung</h2>
+<p>Alle extrahierten IBANs werden automatisch nach ISO 13616 (Modulo-97-Verfahren) validiert.
+Ungültige oder maskierte IBANs (mit * oder XXX) werden stillschweigend verworfen.</p>
+
+
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<!-- 10. Abhängigkeiten & Weiterentwicklung                                -->
+<!-- ══════════════════════════════════════════════════════════════════════ -->
+<h2 id="s10">10. Abhängigkeiten &amp; Weiterentwicklung</h2>
+<p>Alle Quelldateien befinden sich im GitHub-Repository:
+<a href="https://github.com/klausstefanfaszl/invoice_tools">https://github.com/klausstefanfaszl/invoice_tools</a></p>
+
+<table>
+  <tr><th>Paket</th><th>Verwendungszweck</th></tr>
+  <tr><td><code>pymupdf</code></td><td>PDF-Verarbeitung und Textextraktion (alle Tools)</td></tr>
+  <tr><td><code>pillow</code></td><td>Bildverarbeitung für OCR-Vorbereitung</td></tr>
+  <tr><td><code>exchangelib</code></td><td>Exchange Web Services (EWS) Anbindung für inbox</td></tr>
+  <tr><td><code>openpyxl</code></td><td>Excel-Export: Schreiben in .xlsx-Tabellen (--export-excel)</td></tr>
+  <tr><td><code>mysql-connector-python</code></td><td>Datenbankabfrage für mailto Adressmodi 2 und 3 (optional)</td></tr>
+  <tr><td><code>anthropic / openai / google-genai</code></td><td>KI-Extraktion (Claude / OpenAI / Gemini)</td></tr>
+  <tr><td><code>reportlab</code></td><td>PDF-Dokumentenerstellung (extractor Ausgabeformat pdf)</td></tr>
+  <tr><td><code>pyinstaller</code></td><td>Erstellen der Windows-Executable</td></tr>
+</table>
+
+<p><strong>Build-Befehl:</strong></p>
+<pre>py -m PyInstaller invoice_tools.spec --noconfirm</pre>
+
+<p><strong>Dokumentation neu generieren</strong> (HTML → PDF über Browser-Druck):</p>
+<pre>start invoice_tools_doku.html</pre>
+<p class="note">Im Browser: Datei → Drucken → Drucker „Microsoft Print to PDF" → Speichern als invoice_tools_doku.pdf</p>
+
+</body>
+</html>

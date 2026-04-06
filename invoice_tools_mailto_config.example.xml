@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Konfiguration für mailto_sender.py  (invoice_tools mailto)
+  Versendet PDF-Ausgangsrechnungen per E-Mail.
+
+  ─── Adressermittlung (CLI: - -adress-modus / -a) ─────────────────────────
+    0 = Feste Test-Mailadresse aus <TestAdresse> (Standard)
+    1 = Nur PDF-Text  (sucht nach EmailTextMarker im selektierbaren Text der PDF)
+    2 = Nur Datenbank (MySQL, siehe <Datenbank>-Abschnitt)
+    3 = PDF-Text versuchen, danach Datenbank als Fallback (Kombination 1+2)
+
+  ─── Rechnungsnummer-Regex (in <RgNrRegex>) ────────────────────────────────
+    Named Group "rgnr" wird bevorzugt; sonst wird die erste Capture-Group
+    verwendet.  Führende Nullen werden beim Zahlenvergleich ignoriert.
+
+    Beispiele:
+      (?P<rgnr>\d+)          → erste Ziffernfolge  (universell)
+      RA[-_]?(?P<rgnr>\d+)  → Dateiname wie  RA_0042.pdf  oder  RA-42.pdf
+      \d{4}_(?P<rgnr>\d{4}) → Dateiname wie  2026_0042.pdf
+
+  ─── Platzhalter in Betreff und Body ───────────────────────────────────────
+    {rgnr}        → Rechnungsnummer (als ganze Zahl)
+    {RechnungsNr} → identisch mit {rgnr}
+
+  ─── SQL-Abfragen in <Datenbank> ───────────────────────────────────────────
+    Platzhalter {rgnr} wird durch die Rechnungsnummer (integer) ersetzt.
+    Es können bis zu 2 Abfragen angegeben werden; SQL2 wird nur verwendet,
+    wenn SQL1 kein Ergebnis liefert.
+
+    Die erste Spalte des Ergebnisses wird immer als E-Mail-Adresse verwendet,
+    unabhängig davon wie viele Spalten die Abfrage zurückgibt.
+-->
+<MailtoSenderConfig>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       SMTP-VERSANDKONFIGURATION
+       SSL=true            → direktes SMTPS, Port 465
+       SSL=false, TLS=true → STARTTLS,       Port 587 (empfohlen)
+       SSL=false, TLS=false→ plain SMTP,     Port 25  (internes Relay)
+       TLS wird automatisch auf false gesetzt wenn Port=25 oder SSL=true.
+       ══════════════════════════════════════════════════════════════ -->
+  <SMTP>
+    <Host>smtp.firma.de</Host>
+    <Port>587</Port>
+    <SSL>false</SSL>
+    <TLS>true</TLS>
+    <!-- Benutzername für SMTP-Login; leer lassen bei anonymem Relay -->
+    <User>rechnung@firma.de</User>
+    <Password>PASSWORT_HIER</Password>
+    <!-- From-Feld der Mail; "Anzeigename <adresse@domain.de>" möglich -->
+    <Absender>Firma GmbH &lt;rechnung@firma.de&gt;</Absender>
+    <!-- Reply-To: optional; leer lassen um es wegzulassen -->
+    <AntwortAn></AntwortAn>
+  </SMTP>
+
+  <!--
+  ── SMTP-Beispiele (auskommentieren um zu aktivieren) ────────────────────
+
+  Gmail (App-Passwort erforderlich wenn 2-Faktor-Authentifizierung aktiv):
+  <SMTP>
+    <Host>smtp.gmail.com</Host>
+    <Port>587</Port>
+    <SSL>false</SSL>
+    <User>meinname@gmail.com</User>
+    <Password>xxxx xxxx xxxx xxxx</Password>
+    <Absender>Mein Name &lt;meinname@gmail.com&gt;</Absender>
+  </SMTP>
+
+  GMX:
+  <SMTP>
+    <Host>mail.gmx.net</Host>
+    <Port>587</Port>
+    <SSL>false</SSL>
+    <User>meinname@gmx.de</User>
+    <Password>PASSWORT_HIER</Password>
+    <Absender>Mein Name &lt;meinname@gmx.de&gt;</Absender>
+  </SMTP>
+
+  Office 365 / Outlook.com:
+  <SMTP>
+    <Host>smtp.office365.com</Host>
+    <Port>587</Port>
+    <SSL>false</SSL>
+    <User>meinname@outlook.com</User>
+    <Password>PASSWORT_HIER</Password>
+    <Absender>Mein Name &lt;meinname@outlook.com&gt;</Absender>
+  </SMTP>
+
+  T-Online:
+  <SMTP>
+    <Host>securesmtp.t-online.de</Host>
+    <Port>465</Port>
+    <SSL>true</SSL>
+    <User>meinname@t-online.de</User>
+    <Password>PASSWORT_HIER</Password>
+    <Absender>Mein Name &lt;meinname@t-online.de&gt;</Absender>
+  </SMTP>
+  -->
+
+  <!-- ══════════════════════════════════════════════════════════════
+       PDF-VERZEICHNIS
+       Verzeichnis mit den zu versendenden PDF-Ausgangsrechnungen.
+       Unterverzeichnisse werden nicht durchsucht.
+       ══════════════════════════════════════════════════════════════ -->
+  <PdfVerzeichnis>C:\Pfad\zu\Ausgangsrechnungen</PdfVerzeichnis>
+
+  <!-- Optionales separates Verzeichnis für auftragsbezogene PDF-Anhänge.
+       Wird nur verwendet wenn <AuftragNrStellen> > 0 in <Datenbank>.
+       Wenn nicht angegeben, wird im <PdfVerzeichnis> gesucht. -->
+  <!-- <PdfVerzeichnis_Auftraege>C:\Pfad\zu\Auftraege</PdfVerzeichnis_Auftraege> -->
+
+  <!-- Regulärer Ausdruck zum Extrahieren der Rechnungsnummer aus dem Dateinamen.
+       Named Group "rgnr" enthält die Rechnungsnummer.
+       Beispiel: RA_2026_00042_Kunde.pdf  → rgnr = 00042 = 42 -->
+  <RgNrRegex>(?P&lt;rgnr&gt;\d+)</RgNrRegex>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MAIL-VORLAGE
+       Platzhalter: {rgnr} oder {RechnungsNr} = Rechnungsnummer
+       HtmlBody: vollständiger HTML-Mailinhalt (CDATA empfohlen)
+       PlaintextBody: optionaler Klartext-Fallback; weglassen oder
+                      leer lassen wenn nicht benötigt.
+       ══════════════════════════════════════════════════════════════ -->
+  <MailVorlage>
+    <Betreff>Ihre Rechnung Nr. {rgnr}</Betreff>
+
+    <HtmlBody><![CDATA[<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; font-size: 14px; color: #333;">
+  <p>Sehr geehrte Damen und Herren,</p>
+
+  <p>
+    anbei erhalten Sie unsere Rechnung Nr. <strong>{rgnr}</strong>.
+  </p>
+
+  <p>
+    Bitte überweisen Sie den Rechnungsbetrag innerhalb von 14 Tagen
+    auf unser Konto.
+  </p>
+
+  <p>
+    Bei Fragen stehen wir Ihnen gerne zur Verfügung.
+  </p>
+
+  <p>
+    Mit freundlichen Grüßen<br>
+    <br>
+    <strong>Firma GmbH</strong><br>
+    Musterstraße 1 · 12345 Musterstadt<br>
+    Tel.: 0123 / 456789<br>
+    rechnung@firma.de
+  </p>
+</body>
+</html>]]></HtmlBody>
+
+    <!-- Optionaler Plaintext-Fallback (auskommentiert) -->
+    <!--
+    <PlaintextBody>Sehr geehrte Damen und Herren,
+
+anbei erhalten Sie unsere Rechnung Nr. {rgnr}.
+
+Mit freundlichen Grüßen
+Firma GmbH</PlaintextBody>
+    -->
+  </MailVorlage>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       TEST-ADRESSE (für Adressmodus 0, Standard)
+       Alle Mails werden an diese feste Adresse gesendet.
+       Nützlich für Tests und Entwicklung, bevor echte Adressen
+       verwendet werden (Modi 1, 2, 3).
+       ══════════════════════════════════════════════════════════════ -->
+  <TestAdresse>test@firma.de</TestAdresse>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       ADRESSERMITTLUNG AUS PDF-TEXT (Modus 1 und 3)
+       Suchbegriff (Groß-/Kleinschreibung wird ignoriert).
+       Standard: "email:"
+       Beispiel im PDF: "E-Mail: kunde@example.com"
+       ══════════════════════════════════════════════════════════════ -->
+  <EmailTextMarker>email:</EmailTextMarker>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       MYSQL-DATENBANK (für Adressmodus 2 oder als Fallback in Modus 0)
+       Aktivieren: Kommentarzeichen entfernen.
+
+       SQL-Platzhalter: {rgnr} wird durch die Rechnungsnummer ersetzt.
+
+       Die erste Spalte des Ergebnisses wird immer als E-Mail-Adresse verwendet.
+
+       SQL1: Primärabfrage (z.B. direkt über Rechnungstabelle)
+       SQL2: Fallback-Abfrage – wird nur verwendet wenn SQL1 kein
+             Ergebnis liefert.  Weglassen wenn nicht benötigt.
+       ══════════════════════════════════════════════════════════════ -->
+  <!--
+  <Datenbank>
+    <Host>localhost</Host>
+    <Port>3306</Port>
+    <DbName>DATENBANKNAME</DbName>
+    <User>DATENBANKBENUTZER</User>
+    <Password>DATENBANKPASSWORT</Password>
+
+    Beispiel 1: E-Mail direkt aus Rechnungstabelle
+    <SQL1>SELECT email FROM rechnungen WHERE rg_nr = {rgnr}</SQL1>
+
+    Beispiel 2: Fallback über Kundentabelle
+    <SQL2>SELECT email FROM kunden WHERE kunden_nr = (SELECT kunden_nr FROM rechnungen WHERE rg_nr = {rgnr})</SQL2>
+
+    Beispiel mit Auftragsnummer in Spalte 2 (wird fuer PDF-Suche verwendet):
+    <SQL1>SELECT email, auftragsnr FROM rechnungen WHERE rg_nr = {rgnr}</SQL1>
+
+    Anzahl der letzten Stellen der Auftragsnummer (aus Spalte 2 des SQL-Ergebnisses),
+    nach denen im PDF-Verzeichnis nach weiteren Anhang-PDFs gesucht wird.
+    0 = Funktion deaktiviert (Standard).
+    <AuftragNrStellen>0</AuftragNrStellen>
+  </Datenbank>
+  -->
+
+</MailtoSenderConfig>

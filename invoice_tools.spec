@@ -2,6 +2,8 @@
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 _exchangelib_imports = collect_submodules('exchangelib')
+_mysql_imports = collect_submodules('mysql.connector')
+_mysql_datas  = collect_data_files('mysql.connector')
 #
 # PyInstaller-Spec für invoice_tools
 # Kombiniert invoice_extractor und inbox_processor in eine exe
@@ -21,7 +23,7 @@ a = Analysis(
     ['invoice_tools.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=[] + _mysql_datas,
     hiddenimports=[
         'invoice_extractor',
         'inbox_processor',
@@ -34,7 +36,7 @@ a = Analysis(
         'urllib3',
         'google.genai',
         'google.genai.types',
-    ] + _exchangelib_imports,
+    ] + _exchangelib_imports + _mysql_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

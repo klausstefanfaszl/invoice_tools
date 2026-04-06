@@ -48,6 +48,12 @@ except ImportError:
 import json
 import re
 import shutil
+
+try:
+    from openpyxl import load_workbook as _xl_load_workbook
+    _OPENPYXL_OK = True
+except ImportError:
+    _OPENPYXL_OK = False
 import subprocess
 import sys
 import tempfile
@@ -155,7 +161,7 @@ def _iter_exchange(node: ET.Element, only_unread: bool) -> Iterator[MailMessage]
             print(f'Warnung: Archiv-Ordner konnte nicht gesucht werden: {exc}',
                   file=sys.stderr)
 
-    query = target.all().order_by('-datetime_received')
+    query = target.all().order_by('datetime_received')
     if only_unread:
         query = query.filter(is_read=False)
 
@@ -251,7 +257,7 @@ def _iter_imap(node: ET.Element, only_unread: bool) -> Iterator[MailMessage]:
         if status != 'OK' or not data or not data[0]:
             return
 
-        uid_list = list(reversed(data[0].split()))[:limit]   # neueste zuerst
+        uid_list = data[0].split()[:limit]   # älteste zuerst (aufsteigende UID-Reihenfolge)
 
         for uid in uid_list:
             status, msg_data = conn.uid('fetch', uid, '(RFC822)')
@@ -720,6 +726,357 @@ def _exportiere_zu_bankingzv(eintraege: List[dict], kfg: _BzvKfg,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Excel-Export (Rechnungseingang)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class _ExcelSpalte:
+    """Eine Zeile im Spaltenmapping: Excel-Spaltenname → Quelle + Typ.
+
+    quelle:  Extraktionsfeldname (z.B. 'InvoiceDate') oder Sonderwert:
+               {StandardTyp}  → kfg.standard_typ
+               {KontoId}      → konto_id-Parameter (aus BankingZV-Routing)
+    typ:     Konvertierungstyp:
+               'datum'   → date-Objekt  (aus DD.MM.YYYY)
+               'betrag'  → float        (aus deutschem Betrag)
+               'iban'    → str, erstes Element wenn Liste
+               ''        → str (kein Leerstring → None)
+    """
+    name:   str        # Tabellenspaltennamen in Excel
+    quelle: str        # Feldname oder {Sonderwert}
+    typ:    str = ''
+
+
+# Standardmapping — wird verwendet wenn kein <Spaltenmapping> in der Config
+_EXCEL_DEFAULT_MAPPING: List[_ExcelSpalte] = [
+    _ExcelSpalte('Re-Datum',       'InvoiceDate',   'datum'),
+    _ExcelSpalte('Name/Lieferant', 'SupplierName',  ''),
+    _ExcelSpalte('RE-Nr',          'InvoiceNumber', ''),
+    _ExcelSpalte('TYP',            '{StandardTyp}', ''),
+    _ExcelSpalte('Netto',          'NetAmount',     'betrag'),
+    _ExcelSpalte('Brutto',         'GrossAmount',   'betrag'),
+    _ExcelSpalte('Fällig_am',      'DueDate',       'datum'),
+    _ExcelSpalte('IBAN',           'IBAN',          'iban'),
+    _ExcelSpalte('Konto-ID',       '{KontoId}',     ''),
+]
+
+
+@dataclass
+class _ExcelKfg:
+    """Konfiguration für den Excel-Export in die Rechnungseingangs-Tabelle."""
+    aktiv:          bool               = False
+    datei_pfad:     str                = ''
+    tabellenblatt:  str                = 'ER'
+    tabellenname:   str                = 'tb_rechnungen'
+    standard_typ:   str                = 'E'
+    duplikat_spalte: str               = 'RE-Nr'
+    spaltenmapping: List[_ExcelSpalte] = field(default_factory=lambda: list(_EXCEL_DEFAULT_MAPPING))
+
+
+def _lade_excel_kfg(cfg_root: ET.Element) -> '_ExcelKfg':
+    """Liest die <ExcelExport>-Sektion aus der inbox-Config."""
+    kfg  = _ExcelKfg()
+    node = cfg_root.find('ExcelExport')
+    if node is None:
+        return kfg
+    kfg.datei_pfad      = _cfg_text(node, 'DateiPfad',      '')
+    kfg.tabellenblatt   = _cfg_text(node, 'Tabellenblatt',  'ER')
+    kfg.tabellenname    = _cfg_text(node, 'Tabellenname',   'tb_rechnungen')
+    kfg.standard_typ    = _cfg_text(node, 'StandardTyp',    'E')
+    kfg.duplikat_spalte = _cfg_text(node, 'DuplikatSpalte', 'RE-Nr')
+
+    mapping_node = node.find('Spaltenmapping')
+    if mapping_node is not None:
+        mapping: List[_ExcelSpalte] = []
+        for el in mapping_node.findall('Spalte'):
+            spalten_name = (el.get('name') or '').strip()
+            quelle       = (el.text        or '').strip()
+            typ          = (el.get('typ')  or '').strip().lower()
+            if spalten_name and quelle:
+                mapping.append(_ExcelSpalte(spalten_name, quelle, typ))
+        if mapping:
+            kfg.spaltenmapping = mapping
+
+    kfg.aktiv = bool(kfg.datei_pfad)
+    return kfg
+
+
+def _schreibe_in_excel(fields: dict, konto_id: str,
+                        kfg: '_ExcelKfg', dry_run: bool,
+                        debug: int = 0) -> bool:
+    """Fügt eine neue Zeile mit Rechnungsdaten in die Excel-Tabelle ein.
+
+    Die Zielspalten werden über den Namen der Excel-Tabelle (<Tabellenname>)
+    und deren Spaltenköpfe bestimmt — keine hardcodierten Spaltennummern.
+    Formel-Spalten (calculatedColumnFormula) werden aus der letzten Zeile
+    kopiert. Die Tabelle wird auf die neue Zeile ausgedehnt.
+
+    Vor dem Schreiben wird die RE-Nr-Spalte auf Duplikate geprüft.
+    Ein bereits vorhandener Eintrag erzeugt einen Info-Hinweis (kein Fehler).
+
+    Gibt True bei Erfolg oder Duplikat zurück, False bei Fehler.
+    """
+    if not _OPENPYXL_OK:
+        print('  Warnung: openpyxl nicht installiert — Excel-Export übersprungen.',
+              file=sys.stderr)
+        return False
+
+    if not kfg.datei_pfad or not os.path.isfile(kfg.datei_pfad):
+        print(f'  Warnung: Excel-Datei nicht gefunden: {kfg.datei_pfad}',
+              file=sys.stderr)
+        return False
+
+    # ── Werte aus Spaltenmapping auflösen ─────────────────────────────────────
+    def _str_zu_date(s: str) -> Optional[date]:
+        d, m, y = _parse_invoice_date(s or '')
+        if y:
+            try:
+                return date(int(y), int(m), int(d))
+            except ValueError:
+                pass
+        return None
+
+    def _wert(sp: '_ExcelSpalte') -> object:
+        """Liefert den aufgelösten Zellwert für eine Mapping-Zeile."""
+        if sp.quelle == '{StandardTyp}':
+            raw = kfg.standard_typ or None
+        elif sp.quelle == '{KontoId}':
+            raw = konto_id or None
+        else:
+            raw = fields.get(sp.quelle)
+        if raw is None:
+            return None
+        if sp.typ == 'datum':
+            return _str_zu_date(str(raw))
+        if sp.typ == 'betrag':
+            return _parse_betrag(str(raw))
+        if sp.typ == 'iban':
+            if isinstance(raw, list):
+                raw = raw[0] if raw else ''
+            return str(raw).strip() or None
+        # Standardtyp: String
+        val = str(raw).strip() or None
+        # Rechnungsnummern die nur aus Ziffern bestehen mit "R" präfixen,
+        # damit sie in Excel als Text erkennbar bleiben und beim erneuten
+        # Einlesen trotzdem als Duplikat erkannt werden (Substring-Match).
+        if val and sp.quelle == 'InvoiceNumber' and val.isdigit():
+            val = 'R' + val
+        return val
+
+    # Spaltenname → Wert (nur nicht-None-Einträge)
+    werte: Dict[str, object] = {
+        sp.name: _wert(sp)
+        for sp in kfg.spaltenmapping
+    }
+
+    # inv_nr separat für Duplikatprüfung bereitstellen
+    inv_nr = str(fields.get('InvoiceNumber') or '').strip()
+
+    # ── Workbook öffnen (auch im Dry-Run, für Duplikat-Prüfung) ──────────────
+    try:
+        import warnings as _warnings
+        with _warnings.catch_warnings():
+            _warnings.simplefilter('ignore', UserWarning)
+            wb = _xl_load_workbook(kfg.datei_pfad)
+    except Exception as exc:
+        print(f'  Warnung: Excel-Datei konnte nicht geöffnet werden: {exc}',
+              file=sys.stderr)
+        return False
+
+    try:
+        if kfg.tabellenblatt not in wb.sheetnames:
+            print(f'  Warnung: Tabellenblatt "{kfg.tabellenblatt}" nicht gefunden.',
+                  file=sys.stderr)
+            return False
+
+        ws = wb[kfg.tabellenblatt]
+
+        # ── Tabelle und Spalten-Mapping aufbauen ──────────────────────────────
+        if kfg.tabellenname not in ws.tables:
+            print(f'  Warnung: Tabelle "{kfg.tabellenname}" nicht in '
+                  f'Blatt "{kfg.tabellenblatt}" gefunden.', file=sys.stderr)
+            return False
+
+        tbl     = ws.tables[kfg.tabellenname]
+        ref_m   = re.fullmatch(r'([A-Z]+)(\d+):([A-Z]+)(\d+)', tbl.ref)
+        if not ref_m:
+            print(f'  Warnung: Tabellenreferenz "{tbl.ref}" nicht lesbar.',
+                  file=sys.stderr)
+            return False
+
+        from openpyxl.utils import column_index_from_string
+        start_col  = column_index_from_string(ref_m.group(1))
+        end_col_l  = ref_m.group(3)
+        last_row   = int(ref_m.group(4))
+
+        # Spaltenname → absolute Spaltennummer + Formel-Spalten erkennen
+        col_map:     Dict[str, int]  = {}
+        formel_cols: List[int]       = []
+        for i, tc in enumerate(tbl.tableColumns):
+            abs_col = start_col + i
+            col_map[tc.name] = abs_col
+            if tc.calculatedColumnFormula is not None:
+                formel_cols.append(abs_col)
+
+        # ── Duplikat-Prüfung (unscharfe RE-Nr + Datum/Betrag/Name) ──────────
+        dup_col = col_map.get(kfg.duplikat_spalte)
+        dup_val = str(werte.get(kfg.duplikat_spalte) or inv_nr).strip()
+        if dup_val and dup_col:
+
+            def _re_nr_aehnlich(a: str, b: str) -> bool:
+                """True wenn a und b als gleiche RE-Nr gelten.
+                Extra Zeichen am Anfang/Ende (z.B. Präfix 'RE-') werden toleriert."""
+                a, b = a.lower().strip(), b.lower().strip()
+                return a == b or a in b or b in a
+
+            def _name_aehnlich(a: str, b: str) -> bool:
+                if not a or not b:
+                    return True   # fehlender Name schließt Duplikat nicht aus
+                a, b = a.lower(), b.lower()
+                if a in b or b in a:
+                    return True
+                from difflib import SequenceMatcher
+                return SequenceMatcher(None, a, b).ratio() >= 0.70
+
+            def _betrag_gleich(v1, v2) -> bool:
+                try:
+                    return float(v1) == float(v2)
+                except (TypeError, ValueError):
+                    return False
+
+            # Excel-Spaltenindizes für Sekundär-Kriterien ermitteln
+            def _quelle_col(quelle: str) -> Optional[int]:
+                for sp in kfg.spaltenmapping:
+                    if sp.quelle == quelle and sp.name in col_map:
+                        return col_map[sp.name]
+                return None
+
+            datum_col_idx  = _quelle_col('InvoiceDate')
+            betrag_col_idx = _quelle_col('GrossAmount')
+            name_col_idx   = _quelle_col('SupplierName')
+
+            # Neue Werte für Sekundär-Vergleich
+            neu_datum  = next(
+                (werte[sp.name] for sp in kfg.spaltenmapping
+                 if sp.quelle == 'InvoiceDate' and sp.name in werte), None)
+            neu_betrag = next(
+                (werte[sp.name] for sp in kfg.spaltenmapping
+                 if sp.quelle == 'GrossAmount' and sp.name in werte), None)
+            neu_name   = str(fields.get('SupplierName') or '').strip()
+
+            dup_norm   = dup_val.lower()
+            header_row = int(ref_m.group(2))
+
+            for row_idx in range(header_row + 1, last_row + 1):
+                zell_re_nr = str(ws.cell(row_idx, dup_col).value or '').strip()
+                if not zell_re_nr or not _re_nr_aehnlich(dup_norm, zell_re_nr):
+                    continue
+
+                # RE-Nr ähnlich → Datum, Betrag und Name als entscheidende Kriterien
+                datum_ok = betrag_ok = name_ok = True
+
+                if datum_col_idx is not None and neu_datum is not None:
+                    zell_datum_raw = ws.cell(row_idx, datum_col_idx).value
+                    # openpyxl liefert datetime.datetime; auf date normalisieren
+                    if hasattr(zell_datum_raw, 'date'):
+                        zell_datum_raw = zell_datum_raw.date()
+                    datum_ok = (zell_datum_raw == neu_datum)
+
+                if betrag_col_idx is not None and neu_betrag is not None:
+                    betrag_ok = _betrag_gleich(
+                        ws.cell(row_idx, betrag_col_idx).value, neu_betrag)
+
+                if name_col_idx is not None and neu_name:
+                    zell_name = str(ws.cell(row_idx, name_col_idx).value or '').strip()
+                    name_ok = _name_aehnlich(neu_name, zell_name)
+
+                if datum_ok and betrag_ok and name_ok:
+                    print(f'    Info: Excel-Export übersprungen — '
+                          f'Duplikat in Zeile {row_idx} erkannt '
+                          f'(RE-Nr "{zell_re_nr}" ~ "{dup_val}", '
+                          f'Datum/Betrag/Name stimmen überein).')
+                    return True  # kein Fehler
+
+        # ── Dry-Run-Vorschau ──────────────────────────────────────────────────
+        if dry_run:
+            print(f'    [DRY-RUN] Excel -> {kfg.datei_pfad} '
+                  f'[{kfg.tabellenblatt}/{kfg.tabellenname}]')
+            if debug > 0:
+                for col_name, wert in werte.items():
+                    if wert is not None and col_name in col_map:
+                        print(f'      {col_name:<16}: {wert}')
+                if formel_cols:
+                    namen = [n for n, c in col_map.items() if c in formel_cols]
+                    print(f'      Formel-Spalten  : {", ".join(namen)} '
+                          f'(aus Vorgaengerzeile)')
+            return True
+
+        # ── Neue Zeile schreiben ──────────────────────────────────────────────
+        # Erste leere Zeile innerhalb der Tabelle suchen.
+        # Nur Datenspalten prüfen (Formel-Spalten werden bewusst ausgeschlossen,
+        # da sie auch in leeren Zeilen Werte enthalten können).
+        header_row_idx = int(ref_m.group(2))
+        daten_cols     = [c for c in col_map.values() if c not in formel_cols]
+        next_row       = None
+        for r in range(header_row_idx + 1, last_row + 1):
+            if daten_cols and all(ws.cell(r, c).value in (None, '')
+                                  for c in daten_cols):
+                next_row = r
+                break
+
+        extend_tbl = next_row is None
+        if extend_tbl:
+            next_row = last_row + 1
+
+        # ── Formatierung aus Vorgängerzeile sicherstellen ─────────────────────
+        # Bei neuen Zeilen (extend_tbl): komplette Formatierung übernehmen.
+        # Bei vorhandenen leeren Zeilen: nur number_format, falls noch nicht
+        # gesetzt (damit Datum- und Betragsfelder korrekt dargestellt werden).
+        prev_row = next_row - 1
+        end_col_idx = column_index_from_string(end_col_l)
+        from copy import copy as _copy
+        for col_idx in range(start_col, end_col_idx + 1):
+            if col_idx in formel_cols:
+                continue  # Formel-Spalten nicht anfassen — Formatierung bleibt unverändert
+            src = ws.cell(prev_row, col_idx)
+            dst = ws.cell(next_row, col_idx)
+            if extend_tbl:
+                dst.font          = _copy(src.font)
+                dst.border        = _copy(src.border)
+                dst.fill          = _copy(src.fill)
+                dst.number_format = src.number_format
+                dst.protection    = _copy(src.protection)
+                dst.alignment     = _copy(src.alignment)
+            elif dst.number_format in ('General', 'general', '', None):
+                dst.number_format = src.number_format
+
+        for col_name, wert in werte.items():
+            if wert is not None and col_name in col_map:
+                ws.cell(next_row, col_map[col_name], wert)
+
+        # ── Formeln aus Vorgaengerzeile kopieren ──────────────────────────────
+        for col_idx in formel_cols:
+            prev_cell = ws.cell(prev_row, col_idx)
+            if prev_cell.value and str(prev_cell.value).startswith('='):
+                ws.cell(next_row, col_idx, prev_cell.value)
+
+        # ── Tabellenreferenz ausdehnen (nur wenn Zeile außerhalb der Tabelle) ─
+        if extend_tbl:
+            tbl.ref = f'{ref_m.group(1)}{ref_m.group(2)}:{end_col_l}{next_row}'
+
+        wb.save(kfg.datei_pfad)
+        _datum   = str(fields.get('InvoiceDate')  or 'kein Datum')
+        _liefer  = str(fields.get('SupplierName') or '?')
+        print(f'    Excel [{kfg.tabellenname}]: Zeile {next_row} eingefuegt '
+              f'({_datum}, {_liefer}, {inv_nr or "?"})')
+        return True
+
+    except Exception as exc:
+        print(f'  Warnung: Excel-Export fehlgeschlagen: {exc}', file=sys.stderr)
+        return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Hauptprogramm
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -730,6 +1087,9 @@ def run(argv=None):
         epilog=(
             'Modi:\n'
             '  dry    Simulation: zeigt was gespeichert würde, ohne Dateien zu schreiben\n'
+            '         (nur ungelesene Mails; mit -e wird Excel trotzdem geschrieben)\n'
+            '  dryall Wie dry, aber alle Mails — auch bereits gelesene;\n'
+            '         nützlich um ältere Rechnungen nachträglich per -e in Excel zu übertragen\n'
             '  unread Nur ungelesene Mails verarbeiten und speichern\n'
             '  all    Alle Mails verarbeiten und speichern\n'
             '  archiv Wie unread, verschiebt erfolgreich verarbeitete Mails zusätzlich\n'
@@ -738,19 +1098,30 @@ def run(argv=None):
             '  python3 inbox_processor.py -m dry\n'
             '  python3 inbox_processor.py -m unread -c invoice_inbox_config.xml\n'
             '  python3 inbox_processor.py -m archiv -c invoice_inbox_config.xml\n'
-            '  python3 inbox_processor.py -m all -c andere_config.xml -d 2'
+            '  python3 inbox_processor.py -m all -c andere_config.xml -d 2\n'
+            '  python3 inbox_processor.py -m unread -e\n'
+            '  python3 inbox_processor.py -m unread -e -b export\n'
+            '  python3 inbox_processor.py -m dry -B "F:\\Buchhaltung"\n'
+            '  python3 inbox_processor.py -m unread -B "F:\\Buchhaltung" -e\n\n'
+            'Excel-Export (-e / --export-excel):\n'
+            '  Schreibt jede erkannte Rechnung als neue Zeile in die Tabelle\n'
+            '  <ExcelExport><DateiPfad> aus der Config. Vor dem Schreiben wird\n'
+            '  geprüft ob die RE-Nr bereits vorhanden ist (kein Duplikat möglich).\n'
+            '  Pfad zur Excel-Datei wird in <ExcelExport><DateiPfad> konfiguriert.'
         ),
     )
     parser.add_argument('-c', '--config', default='invoice_inbox_config.xml',
                         metavar='CONFIGDATEI',
                         help='XML-Konfigurationsdatei (Standard: invoice_inbox_config.xml)')
     parser.add_argument('-m', '--modus', required=True,
-                        choices=['dry', 'unread', 'all', 'archiv'], metavar='MODUS',
-                        help='dry=Simulation | unread=nur ungelesene | all=alle | '
+                        choices=['dry', 'dryall', 'unread', 'all', 'archiv'], metavar='MODUS',
+                        help='dry=Simulation (ungelesene) | dryall=Simulation (alle Mails) | '
+                             'unread=nur ungelesene | all=alle | '
                              'archiv=ungelesene + Archivierung nach Verarbeitung')
     parser.add_argument('--dry-run', action='store_true', default=False,
                         help='Simulation: keine Dateien speichern, kein BankingZV-Aufruf '
-                             '(kombinierbar mit -m all oder -m unread)')
+                             '(kombinierbar mit -m all oder -m unread); '
+                             'mit -e wird Excel trotzdem tatsächlich geschrieben')
     parser.add_argument('-d', '--debug', type=int, default=0, metavar='LEVEL',
                         help='Debug-Level für InvoiceExtractor (0=aus … 3=Vollausgabe)')
     parser.add_argument('-a', '--api', default=None, metavar='API_CONFIG',
@@ -761,6 +1132,12 @@ def run(argv=None):
                         help='BankingZV-Export aktivieren: '
                              'dry=nur Anzeige | json=Anzeige+JSON-Datei | export=+BankingZV-Aufruf. '
                              'Wallet und Token kommen aus invoice_inbox_config.xml.')
+    parser.add_argument('-B', '--bdir', default=None, metavar='VERZEICHNIS',
+                        help='Basisverzeichnis für die PDF-Ablage; überschreibt '
+                             '<BaseDir> aus der Config-Datei.')
+    parser.add_argument('-e', '--export-excel', action='store_true', default=False,
+                        help='Rechnungsdaten in die Excel-Eingangstabelle schreiben '
+                             '(Pfad wird aus <ExcelExport><DateiPfad> in der Config gelesen).')
     parser.add_argument('-l', '--log', default=None, metavar='LOGDATEI',
                         help='Protokolldatei; ohne -d wird stdout vollständig dorthin '
                              'umgeleitet (kein Ausgabe auf stdout im Normalbetrieb)')
@@ -807,6 +1184,16 @@ def run(argv=None):
               file=sys.stderr)
         bzv_modus = ''  # deaktivieren
 
+    # ── Excel-Export-Konfiguration ────────────────────────────────────────────
+    excel_kfg    = _lade_excel_kfg(cfg)
+    excel_export = args.export_excel
+    if excel_export and not excel_kfg.aktiv:
+        print(f'Warnung: --export-excel angefordert, aber kein <DateiPfad> in '
+              f'<ExcelExport> konfiguriert — Excel-Export ignoriert.', file=sys.stderr)
+        excel_export = False
+    elif excel_export:
+        print(f'Excel-Export: {excel_kfg.datei_pfad} [{excel_kfg.tabellenblatt}]')
+
     # Postfach-Konfiguration
     mailbox_node = cfg.find('Mailbox')
     if mailbox_node is None:
@@ -845,6 +1232,9 @@ def run(argv=None):
 
     # Ablage
     base_dir        = _cfg_text(cfg, 'Storage/BaseDir', '.')
+    if args.bdir:
+        base_dir = args.bdir
+        print(f'BaseDir (überschrieben): {base_dir}')
     subpath_pattern = _cfg_text(cfg, 'Storage/Subpath', '{year}/{month}')
     fallback_dir    = _cfg_text(cfg, 'Storage/FallbackDir', '_unbekannt')
 
@@ -865,7 +1255,7 @@ def run(argv=None):
         sys.exit(1)
 
     # ── Modus auswerten ───────────────────────────────────────────────────────
-    dry_run     = args.modus == 'dry' or args.dry_run
+    dry_run     = args.modus in ('dry', 'dryall') or args.dry_run
     only_unread = args.modus in ('dry', 'unread', 'archiv')
 
     # Bei Modus "archiv": ArchiveFolder sicherstellen (Config-Wert oder Default "Archiv")
@@ -922,6 +1312,28 @@ def run(argv=None):
                               f'{count_err} Fehler (vor KI-Abbruch).')
                         sys.exit(_EXIT_KI)
 
+                    # Kein Rechnungsdatum → Empfangsdatum der Mail als Fallback
+                    if not fields.get('InvoiceDate') and mail.received:
+                        try:
+                            recv_iso = str(mail.received)[:10]  # "YYYY-MM-DD"
+                            y, m, d  = recv_iso.split('-')
+                            fields['InvoiceDate'] = f'{d}.{m}.{y}'
+                            print(f'  Warnung: Kein Rechnungsdatum gefunden — '
+                                  f'Empfangsdatum der Mail wird verwendet: '
+                                  f'{fields["InvoiceDate"]}', file=sys.stderr)
+                        except Exception:
+                            pass
+
+                    # Keine Rechnungsnummer → aus Anhang-Dateiname extrahieren (Fallback)
+                    # Erkennt lange Ziffernfolge am Dateinamen-Ende, z.B. "Invoice_10264391439.pdf"
+                    if not fields.get('InvoiceNumber'):
+                        m_fn = re.search(r'[_\-](\d{5,20})(?:\.[^.]+)?$', attachment.name)
+                        if m_fn:
+                            fields['InvoiceNumber'] = m_fn.group(1)
+                            print(f'  Warnung: Keine Rechnungsnummer im PDF gefunden — '
+                                  f'aus Dateiname extrahiert: {fields["InvoiceNumber"]}',
+                                  file=sys.stderr)
+
                     # Rechnungsfilter: Pflichtfelder prüfen
                     missing_fields = [f for f in required_fields
                                       if not fields.get(f)]
@@ -947,12 +1359,14 @@ def run(argv=None):
                         shutil.copy2(tmp_path, dest_path)
 
                     # BankingZV-Eintrag vorbereiten (auch im Dry-Run für Vorschau)
+                    bzv_konto_id = ''
                     if bzv_modus and bzv_kfg.aktiv:
                         konto = _select_bzv_konto(fields, bzv_kfg)
                         if konto is None:
                             print(f'  Warnung: Kein BankingZV-Konto gefunden — '
                                   f'Eintrag übersprungen.', file=sys.stderr)
                         else:
+                            bzv_konto_id = konto.konto_id
                             try:
                                 bzv_e = _erstelle_bzv_eintrag(fields, konto, bzv_kfg)
                                 bzv_eintraege.append(bzv_e)
@@ -972,6 +1386,19 @@ def run(argv=None):
                             except Exception as exc:
                                 print(f'  Warnung: BankingZV-Eintrag fehlgeschlagen: {exc}',
                                       file=sys.stderr)
+                    elif excel_export and bzv_kfg.aktiv:
+                        # Konto-ID auch ohne BZV-Export ermitteln (für Excel-Spalte N)
+                        konto = _select_bzv_konto(fields, bzv_kfg)
+                        if konto:
+                            bzv_konto_id = konto.konto_id
+
+                    # Excel-Export (wird auch im dry_run tatsächlich geschrieben,
+                    # da -e explizit angefordert wurde; nur PDF-Save und BankingZV
+                    # werden im dry_run unterdrückt)
+                    if excel_export:
+                        _schreibe_in_excel(fields, bzv_konto_id, excel_kfg,
+                                           dry_run=False,
+                                           debug=args.debug)
 
                     count_ok += 1
 

@@ -257,7 +257,7 @@ def build_content(styles, usable_width):
     # ------------------------------------------------------------------
     story.append(Paragraph("invoice_tools", styles["title"]))
     story.append(Paragraph(
-        "Technische Dokumentation · Version 1.0 · UHDE Datentechnik",
+        "Technische Dokumentation · Version 1.1 · UHDE Datentechnik",
         styles["subtitle"],
     ))
     story.append(HRFlowable(width="100%", thickness=1.5, color=DARK_BLUE, spaceAfter=12))
@@ -435,6 +435,13 @@ def build_content(styles, usable_width):
              "Simulation kombinierbar mit -m all oder -m unread"],
             ["--bzv MODUS", "-b", "–",
              "BankingZV-Export: dry=Anzeige · json=+JSON-Datei · export=+BankingZV-Aufruf"],
+            ["--bdir VERZ.", "-B", "–",
+             "Basisverzeichnis für PDF-Ablage; überschreibt &lt;BaseDir&gt; aus der Config. "
+             "Nützlich wenn die Batch-Skripte von wechselnden Rechnern mit unterschiedlichen "
+             "Pfaden aufgerufen werden."],
+            ["--export-excel", "-e", "–",
+             "Rechnungsdaten in Excel-Eingangstabelle schreiben (Pfad aus &lt;ExcelExport&gt;"
+             " in der Config). Duplikat-Prüfung verhindert doppelte Einträge."],
             ["--api DATEI", "-a", "(automatisch)",
              "Zentrale KI-API-Konfigurationsdatei"],
         ],
@@ -533,7 +540,12 @@ def build_content(styles, usable_width):
         "invoice_tools.exe inbox -m dry\n"
         "invoice_tools.exe inbox -m unread -c invoice_inbox_config.xml\n"
         "invoice_tools.exe inbox -m archiv -b export\n"
-        "invoice_tools.exe inbox -m unread -b export -l inbox.log",
+        "invoice_tools.exe inbox -m unread -b export -l inbox.log\n"
+        "invoice_tools.exe inbox -m dry -e -d 1              (Vorschau Excel-Zellwerte)\n"
+        "invoice_tools.exe inbox -m unread -e                (PDF ablegen + Excel schreiben)\n"
+        "invoice_tools.exe inbox -m unread -e -b export      (PDF + Excel + BankingZV)\n"
+        "invoice_tools.exe inbox -m dry -B \"F:\\Buchhaltung\"  (BaseDir per Parameter)\n"
+        "invoice_tools.exe inbox -m unread -B \"F:\\Buchhaltung\" -e",
         W, styles,
     ))
     story.append(sp(4))
@@ -542,6 +554,86 @@ def build_content(styles, usable_width):
         "Alle Verarbeitungsmeldungen landen in der Logdatei. "
         "Fehlermeldungen (stderr) bleiben immer sichtbar. "
         "Der Exit-Code steht dem aufrufenden Batch-Skript weiterhin über %errorlevel% zur Verfügung.",
+        styles,
+    ))
+
+    # 4.7 Excel-Export
+    story.append(h2("4.7 Excel-Export (--export-excel / -e)", styles))
+    story.append(body(
+        "Mit dem Flag <b>-e</b> wird jede erfolgreich verarbeitete Rechnung zusätzlich als "
+        "neue Zeile in eine Excel-Datei geschrieben. Die Zieltabelle wird über den "
+        "Tabellennamen (Standard: <i>tb_rechnungen</i>) referenziert — "
+        "Spaltenreihenfolge und -namen werden dynamisch aus der Tabellendefinition ermittelt.",
+        styles,
+    ))
+    story.append(sp(4))
+
+    story.append(body("<b>Befüllte Spalten (konfigurierbar per &lt;Spaltenmapping&gt;):</b>", styles))
+    tbl = make_table(
+        ["Excel-Spalte", "Quelle", "Typ"],
+        [
+            ["Re-Datum",       "InvoiceDate",   "datum"],
+            ["Name/Lieferant", "SupplierName",  "Text"],
+            ["RE-Nr",          "InvoiceNumber", "Text"],
+            ["TYP",            "{StandardTyp}", "Text (aus Config)"],
+            ["Netto",          "NetAmount",     "betrag"],
+            ["Brutto",         "GrossAmount",   "betrag"],
+            ["Fällig_am",      "DueDate",       "datum"],
+            ["IBAN",           "IBAN",          "iban (erstes Element)"],
+            ["Konto-ID",       "{KontoId}",     "Text (aus BankingZV-Routing)"],
+        ],
+        styles,
+        col_widths=[W * 0.25, W * 0.35, W * 0.40],
+    )
+    story.append(tbl)
+    story.append(sp(4))
+
+    story.append(body(
+        "Spalten mit <b>calculatedColumnFormula</b> (z.B. Monat, Jahr, Steuer, St%) "
+        "werden automatisch erkannt und aus der Vorgängerzeile kopiert.",
+        styles,
+    ))
+    story.append(sp(4))
+
+    story.append(body("<b>Duplikat-Prüfung:</b> Vor dem Schreiben wird die konfigurierte "
+                      "Duplikat-Spalte (Standard: <i>RE-Nr</i>) auf Übereinstimmung geprüft. "
+                      "Ein bereits vorhandener Eintrag erzeugt einen Info-Hinweis und "
+                      "verhindert den Schreibvorgang — kein Fehler, kein Abbruch.", styles))
+    story.append(sp(4))
+
+    story.append(body("<b>Dry-Run-Vorschau:</b> Mit <i>-m dry -e -d 1</i> werden die "
+                      "Zellwerte aller zu schreibenden Spalten angezeigt, ohne die Datei "
+                      "zu verändern. Die Duplikat-Prüfung läuft auch im Dry-Run durch.", styles))
+    story.append(sp(4))
+
+    story.append(body("<b>Config-Block &lt;ExcelExport&gt; in invoice_inbox_config.xml:</b>", styles))
+    story.append(code_block(
+        "<ExcelExport>\n"
+        "  <DateiPfad>C:\\Pfad\\zur\\Rechnungseingang.xlsx</DateiPfad>\n"
+        "  <Tabellenblatt>ER</Tabellenblatt>\n"
+        "  <Tabellenname>tb_rechnungen</Tabellenname>\n"
+        "  <StandardTyp>E</StandardTyp>\n"
+        "  <DuplikatSpalte>RE-Nr</DuplikatSpalte>\n"
+        "  <Spaltenmapping>\n"
+        "    <!-- name=Excel-Spalte  typ=datum|betrag|iban|(leer=Text) -->\n"
+        "    <!-- Sonderwerte: {StandardTyp} {KontoId}                 -->\n"
+        "    <Spalte name=\"Re-Datum\"       typ=\"datum\" >InvoiceDate</Spalte>\n"
+        "    <Spalte name=\"Name/Lieferant\"             >SupplierName</Spalte>\n"
+        "    <Spalte name=\"RE-Nr\"                      >InvoiceNumber</Spalte>\n"
+        "    <Spalte name=\"TYP\"                        >{StandardTyp}</Spalte>\n"
+        "    <Spalte name=\"Netto\"          typ=\"betrag\">NetAmount</Spalte>\n"
+        "    <Spalte name=\"Brutto\"         typ=\"betrag\">GrossAmount</Spalte>\n"
+        "    <Spalte name=\"Faellig_am\"     typ=\"datum\" >DueDate</Spalte>\n"
+        "    <Spalte name=\"IBAN\"           typ=\"iban\"  >IBAN</Spalte>\n"
+        "    <Spalte name=\"Konto-ID\"                   >{KontoId}</Spalte>\n"
+        "  </Spaltenmapping>\n"
+        "</ExcelExport>",
+        W, styles,
+    ))
+    story.append(sp(4))
+    story.append(note(
+        "<b>Hinweis:</b> Fehlt &lt;Spaltenmapping&gt;, wird das eingebaute Standard-Mapping "
+        "verwendet. Die Tabelle wird nach jedem Einfügen automatisch auf die neue Zeile ausgedehnt.",
         styles,
     ))
 
@@ -559,7 +651,8 @@ def build_content(styles, usable_width):
             ["invoice_extractor_config_RA.xml",
              "extractor: Ausgangsrechnungen — Feld RecipientName, Summenzeile aktiv"],
             ["invoice_inbox_config.xml",
-             "inbox: Exchange-/IMAP-Zugangsdaten, Ablagestruktur, Filter"],
+             "inbox: Exchange-/IMAP-Zugangsdaten, Ablagestruktur, Filter, "
+             "BankingZV-Export, Excel-Export (&lt;ExcelExport&gt;)"],
             ["invoice_tools_api_config.xml",
              "Zentrale KI-API-Konfiguration (alle Provider / Keys)"],
         ],
@@ -705,6 +798,7 @@ def build_content(styles, usable_width):
             ["pymupdf",                          "PDF-Verarbeitung und Textextraktion"],
             ["pillow",                           "Bildverarbeitung für OCR-Vorbereitung"],
             ["exchangelib",                      "Exchange Web Services (EWS) Anbindung"],
+            ["openpyxl",                         "Excel-Export: Schreiben in .xlsx-Tabellen (--export-excel)"],
             ["anthropic / openai / google-genai","KI-Extraktion (Claude / OpenAI / Gemini)"],
             ["reportlab",                        "PDF-Dokumentenerstellung"],
             ["pyinstaller",                      "Erstellen der Windows-Executable"],

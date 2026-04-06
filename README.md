@@ -9,6 +9,7 @@ Python-Toolkit zur automatischen Extraktion strukturierter Daten aus PDF-Rechnun
 - **Automatischer KI-Provider-Test** beim Start — bei mehreren konfigurierten Providern wird der erste funktionierende verwendet
 - **Postfach-Integration** für Exchange (EWS) und IMAP — lädt Rechnungsanhänge, extrahiert Felder und legt PDFs automatisch ab
 - **BankingZV-Export** — übergibt Zahlungen, Lastschriften und Gutschriften als Erwartete Zahlungen an Banking4Windows
+- **Excel-Export** — schreibt Rechnungsdaten direkt in die Eingangstabelle `Rechnungseingang.xlsx` (Blatt ER)
 - **Ausgabeformate**: stdout, txt, pdf, csv, json, xml
 - **Windows-Executable** über PyInstaller
 
@@ -20,6 +21,8 @@ invoice_tools.exe extractor -c invoice_extractor_config_RE.xml -f pdf -o bericht
 invoice_tools.exe inbox -m unread
 invoice_tools.exe inbox -m dry
 invoice_tools.exe inbox -m all -b export
+invoice_tools.exe inbox -m unread -e
+invoice_tools.exe inbox -m unread -e -b export
 ```
 
 ## Batch-Skripte
@@ -36,7 +39,7 @@ invoice_tools.exe inbox -m all -b export
 |-------|---------|
 | `invoice_extractor_config_RE.xml` | Extractor-Config für Eingangsrechnungen |
 | `invoice_extractor_config_RA.xml` | Extractor-Config für Ausgangsrechnungen |
-| `invoice_inbox_config.xml` | Postfach, Ablagestruktur, BankingZV-Einstellungen |
+| `invoice_inbox_config.xml` | Postfach, Ablagestruktur, BankingZV- und Excel-Export-Einstellungen |
 | `invoice_tools_api_config.xml` | Zentrale KI-API-Konfiguration (Keys, Provider, Modell) |
 
 Beispiel-Configs (ohne echte Keys) liegen als `*.example.xml` bei.

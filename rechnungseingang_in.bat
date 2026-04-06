@@ -31,7 +31,7 @@ if "!_USE_PY!"=="1" (set RUNNER=py "!_PY!") else (set RUNNER="!_EXE!")
 ::           all    – alle Mails verarbeiten
 ::           archiv – wie unread + erfolgreich verarbeitete Mails in Archiv-Ordner verschieben
 :: ============================================================
-set MODUS=unread
+set MODUS=archiv
 if not "%~1"=="" set MODUS=%~1
 
 if /i "%MODUS%"=="dry"    goto :start
@@ -62,7 +62,7 @@ echo  Start   : %STARTZEIT%
 echo  -----------------------------------------------
 echo.
 
-!RUNNER! inbox -m %MODUS% -b export -c "%CONFIG%"
+!RUNNER! inbox --modus %MODUS% --bzv export --export-excel --config "%CONFIG%" --bdir ..
 set EXITCODE=%errorlevel%
 
 echo.

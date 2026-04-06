@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 :: ============================================================
 ::  Konfiguration — hier bei Bedarf anpassen
 :: ============================================================
-set BASE_DIR=F:\Dokumente\UHDE intern\Buchhaltung
+set BASE_DIR=F:\Dokumente\UHDE_intern\Buchhaltung
 set FORMAT=pdf
 set CONFIG=%~dp0invoice_extractor_config_RE.xml
 

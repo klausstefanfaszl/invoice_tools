@@ -52,6 +52,7 @@
 
   <!-- ======================= RECHNUNGSNUMMER ====================== -->
   <Field name="InvoiceNumber" label="Rechnungsnr.">
+    <Description>Rechnungsnummer des Lieferanten. Auch als BELEGNUMMER, Belegnummer, Beleg-Nr., Invoice Number, Invoice No., Invoice #, Auftragsnummer o.ä. bezeichnet. Beim VW Leasing steht die Zahl links neben dem Text "BELEGNUMMER".</Description>
     <!-- ZUGferD -->
     <XPath>.//rsm:ExchangedDocument/ram:ID</XPath>
     <!-- NFON-Format: Rechnungsnummer: \n<Hotline>\n<echte Nummer> – MUSS vor generischem Muster stehen! -->
@@ -70,8 +71,10 @@
     <Regex>Rechnung\s*[#—]+\s*([A-Z0-9][\w\d\-/\.]{2,40})</Regex>
     <!-- Englisch: "Invoice Number:" oder "Invoice number" -->
     <Regex>Invoice\s+(?:Number|number|#)[:\s]*([A-Z0-9][\w\d\-/\.]{2,40})</Regex>
-    <!-- VW Leasing: BELEGNUMMER -->
+    <!-- VW Leasing: BELEGNUMMER (Label vor Zahl, z.B. ältere Layouts) -->
     <Regex>BELEGNUMMER\s*\n\s*(\d{5,20})</Regex>
+    <!-- VW Leasing: umgekehrtes Layout — Zahl links, Label rechts ("10264391439 BELEGNUMMER") -->
+    <Regex>(\d{5,20})\s+BELEGNUMMER</Regex>
     <!-- GS1: Belegnummer -->
     <Regex>Belegnummer\s*\n\s*(\d{5,20})</Regex>
     <!-- Wolkesicher: "Rechnung 409398" (Zahl allein auf der Zeile) -->
