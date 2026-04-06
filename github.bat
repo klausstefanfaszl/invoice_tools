@@ -16,9 +16,14 @@ if not errorlevel 1 (
     goto end
 )
 git commit -m "Aktualisierung %date% %time%"
-git pull --rebase origin main
+git fetch origin main
 if errorlevel 1 (
-    echo FEHLER beim Pull/Rebase vor dem Push.
+    echo FEHLER beim Fetch.
+    exit /b 1
+)
+git rebase origin/main
+if errorlevel 1 (
+    echo FEHLER beim Rebase.
     exit /b 1
 )
 git push -u origin main
